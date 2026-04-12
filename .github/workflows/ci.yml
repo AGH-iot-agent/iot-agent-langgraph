@@ -1,0 +1,50 @@
+name: LangGraph Agent CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'iot-agent-langgraph/**'
+      - 'docker-compose.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'iot-agent-langgraph/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      LANGGRAPH_IMAGE: ${{ vars.LANGGRAPH_IMAGE || 'langchain/langgraph-api:latest' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull image
+        run: docker pull "$LANGGRAPH_IMAGE"
+
+      - name: Start LangGraph service
+        run: docker compose --profile devops-agent up -d iot-agent-langgraph
+
+      - name: Wait for health endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8123/health >/dev/null; then
+              echo "LangGraph is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LangGraph did not become healthy in time"
+          exit 1
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs iot-agent-langgraph
+
+      - name: Cleanup
+        if: always()
+        run: docker compose --profile devops-agent down
