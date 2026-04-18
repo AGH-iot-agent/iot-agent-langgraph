@@ -4,13 +4,21 @@ on:
   push:
     branches: [ main, feat/IOOAG-01-langgraph ]
     paths:
-      - 'iot-agent-langgraph/**'
-      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'README.md'
+      - 'src/**'
+      - 'Helm/**'
   pull_request:
     branches: [ main, feat/IOOAG-01-langgraph ]
     paths:
-      - 'iot-agent-langgraph/**'
-      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'README.md'
+      - 'src/**'
+      - 'Helm/**'
   workflow_dispatch:
 
 jobs:
@@ -27,9 +35,9 @@ jobs:
         run: |
           set -euo pipefail
           if docker buildx version >/dev/null 2>&1; then
-            docker build -f iot-agent-langgraph/Dockerfile -t "$LANGGRAPH_IMAGE" iot-agent-langgraph
+            docker build -f Dockerfile -t "$LANGGRAPH_IMAGE" .
           else
-            DOCKER_BUILDKIT=0 docker build -f iot-agent-langgraph/Dockerfile -t "$LANGGRAPH_IMAGE" iot-agent-langgraph
+            DOCKER_BUILDKIT=0 docker build -f Dockerfile -t "$LANGGRAPH_IMAGE" .
           fi
 
       - name: Start LangGraph service
