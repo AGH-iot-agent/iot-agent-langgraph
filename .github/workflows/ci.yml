@@ -2,12 +2,12 @@ name: LangGraph Agent CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/IOOAG-01-langgraph ]
     paths:
       - 'iot-agent-langgraph/**'
       - 'docker-compose.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, feat/IOOAG-01-langgraph ]
     paths:
       - 'iot-agent-langgraph/**'
       - 'docker-compose.yml'
