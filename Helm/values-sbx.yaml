@@ -201,11 +201,11 @@ tty: false
 # A way to pull secondary env variables from configmaps and secrets
 envFrom:
   - configMapRef:
-    name: iot-agent-langgraph-config
-    optional: true
+      name: iot-agent-langgraph-config
+      optional: true
   - secretRef:
-    name: iot-agent-langgraph-secrets
-    optional: true
+      name: iot-agent-langgraph-secrets
+      optional: true
 
 # This enables the deprecated memory kibibytes env variables for backwards compatibility. TODO: Remove from future release.
 usingMemoryKibiBytesEnvs: false
