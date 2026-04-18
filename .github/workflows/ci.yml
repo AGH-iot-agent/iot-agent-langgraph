@@ -17,20 +17,36 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     env:
-      LANGGRAPH_IMAGE: ${{ vars.LANGGRAPH_IMAGE || 'langchain/langgraph-api:latest' }}
+      LANGGRAPH_IMAGE: iot-agent-langgraph:${{ github.sha }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pull image
-        run: docker pull "$LANGGRAPH_IMAGE"
+      - name: Build LangGraph image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker buildx version >/dev/null 2>&1; then
+            docker build -f iot-agent-langgraph/Dockerfile -t "$LANGGRAPH_IMAGE" iot-agent-langgraph
+          else
+            DOCKER_BUILDKIT=0 docker build -f iot-agent-langgraph/Dockerfile -t "$LANGGRAPH_IMAGE" iot-agent-langgraph
+          fi
 
       - name: Start LangGraph service
-        run: docker compose --profile devops-agent up -d iot-agent-langgraph
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d \
+            --name iot-agent-langgraph \
+            -p 8123:8123 \
+            -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+            "$LANGGRAPH_IMAGE"
 
       - name: Wait for health endpoint
+        shell: bash
         run: |
+          set -euo pipefail
           for i in {1..30}; do
             if curl -fsS http://localhost:8123/health >/dev/null; then
               echo "LangGraph is healthy"
@@ -43,8 +59,10 @@ jobs:
 
       - name: Container logs on failure
         if: failure()
-        run: docker compose logs iot-agent-langgraph
+        shell: bash
+        run: docker logs iot-agent-langgraph
 
       - name: Cleanup
         if: always()
-        run: docker compose --profile devops-agent down
+        shell: bash
+        run: docker rm -f iot-agent-langgraph
