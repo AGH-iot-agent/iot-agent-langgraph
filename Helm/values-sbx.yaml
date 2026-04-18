@@ -361,7 +361,7 @@ hostname: ""
 
 ## For RBAC support, enable if you want, and set the rules you wish, examples below
 rbac:
-  create: true
+  create: false
   rules:
     - apiGroups: [""]
       resources: ["pods", "pods/log", "services", "events"]
