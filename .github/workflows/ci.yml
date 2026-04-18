@@ -22,53 +22,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    env:
-      LANGGRAPH_IMAGE: iot-agent-langgraph:${{ github.sha }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  docker:
+    uses: AGH-iot-agent/common-pipeline/.github/workflows/docker.yml@feat/IOTAG-01-common-pipeline
+    with:
+      image_repository: iot-agent-langgraph
+      image_tag: ${{ github.sha }}
+      docker_context: .
+      dockerfile: Dockerfile
+      image_output_dir: /mnt/storage/iot-agent/docker-local
+      store_image_locally: true
+      import_to_k3s: true
 
-      - name: Build LangGraph image
-        shell: bash
-        run: |
-          set -euo pipefail
-          if docker buildx version >/dev/null 2>&1; then
-            docker build -f Dockerfile -t "$LANGGRAPH_IMAGE" .
-          else
-            DOCKER_BUILDKIT=0 docker build -f Dockerfile -t "$LANGGRAPH_IMAGE" .
-          fi
-
-      - name: Start LangGraph service
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run -d \
-            --name iot-agent-langgraph \
-            -p 8123:8123 \
-            "$LANGGRAPH_IMAGE"
-
-      - name: Wait for health endpoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          for i in {1..30}; do
-            if curl -fsS http://localhost:8123/health >/dev/null; then
-              echo "LangGraph is healthy"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "LangGraph did not become healthy in time"
-          exit 1
-
-      - name: Container logs on failure
-        if: failure()
-        shell: bash
-        run: docker logs iot-agent-langgraph
-
-      - name: Cleanup
-        if: always()
-        shell: bash
-        run: docker rm -f iot-agent-langgraph
+  deploy:
+    needs: docker
+    uses: AGH-iot-agent/common-pipeline/.github/workflows/helm.yml@feat/IOTAG-01-common-pipeline
+    secrets: inherit
+    with:
+      service_name: iot-agent-langgraph
+      release_name: iot-agent-langgraph
+      namespace: ${{ github.event_name == 'pull_request' && 'iotag-sbx' || 'iotag-dev' }}
+      chart_type: deployment
+      values_file: ${{ github.event_name == 'pull_request' && 'Helm/values-sbx.yaml' || 'Helm/values-dev.yaml' }}
+      image_repository: iot-agent-langgraph
+      image_tag: ${{ github.sha }}
