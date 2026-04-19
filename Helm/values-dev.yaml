@@ -118,7 +118,7 @@ ingress:
   pathType: ImplementationSpecific # or Prefix
   annotations: {}
   hosts:
-    - host: iot-agent-langgraph-dev.iotag-dev
+    - host: iot-agent-langgraph-dev.iotag-dev.com
       paths:
         - /
   tls: []
