@@ -162,7 +162,10 @@ additionalPorts: []
   #   protocol: TCP
 
 # Additional pod annotations
-podAnnotations: {}
+podAnnotations:
+  service_name: "iot-agent-langgraph"
+  iotag_service: "iot-agent-langgraph"
+  iotag_env: "sbx"
   # tick: "1528451892"
 
 # If you're using Kubernetes 1.20+ you'll want to enable this, this uses the new common label scheme

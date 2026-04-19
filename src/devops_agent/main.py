@@ -23,9 +23,15 @@ class WatchStartRequest(BaseModel):
     monitor_github: bool = True
 
 
+import os
+
 app = FastAPI(title="iot-agent-langgraph", version="0.1.0")
 compiled_graph = build_graph()
 watchdog = AgentWatchdog(MCPAdapter())
+
+# Autostart watchdog jeśli zmienna środowiskowa ustawiona (domyślnie true)
+if os.environ.get("IOTAG_WATCHDOG_AUTOSTART", "true").lower() == "true":
+    watchdog.start(WatchdogConfig(namespace="iot-agent", interval_seconds=30, monitor_github=True))
 
 
 @app.get("/health")
@@ -55,7 +61,6 @@ def watch_start(payload: WatchStartRequest) -> dict[str, Any]:
             monitor_github=payload.monitor_github,
         )
     )
-
 
 @app.post("/watch/stop")
 def watch_stop() -> dict[str, Any]:
