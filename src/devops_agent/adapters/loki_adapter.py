@@ -9,20 +9,10 @@ import httpx
 
 @dataclass
 class LokiAdapter:
-    """HTTP adapter for Grafana Loki LogQL API.
-
-    Reads LOKI_URL from env (default http://localhost:3100).
-    Set LOKI_USER / LOKI_PASSWORD for basic-auth (Grafana Cloud).
-    """
-
-    base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://localhost:3100").rstrip("/"))
-    user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER"))
-    password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD"))
+    base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://grafana-dev.iotag-dev.com").rstrip("/"))
+    user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER", "IOTAG-AGENT"))
+    password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD", "sa-1-iotag-agent"))
     timeout: int = 20
-
-    # ------------------------------------------------------------------ #
-    #  Public interface                                                    #
-    # ------------------------------------------------------------------ #
 
     def query_range(self, args: dict[str, Any]) -> dict[str, Any]:
         """Execute a LogQL range query.
@@ -70,10 +60,6 @@ class LokiAdapter:
         result.update({"tool": "loki", "action": action, "args": args, "dry_run": False})
         return result
 
-    # ------------------------------------------------------------------ #
-    #  Private helpers                                                     #
-    # ------------------------------------------------------------------ #
-
     def _build_logql(self, args: dict[str, Any]) -> str:
         if args.get("query"):
             return str(args["query"])
@@ -105,12 +91,21 @@ class LokiAdapter:
         }
 
         auth = (self.user, self.password) if self.user and self.password else None
+        headers = {}
+        if self.user and self.password:
+            import base64
+            basic = f"{self.user}:{self.password}"
+            headers["Authorization"] = "Basic " + base64.b64encode(basic.encode()).decode()
+
+        url = f"{self.base_url}/loki/api/v1/query_range"
+        logger.info(f"[GRAFANA-API] GET {url} params={params}")
         with httpx.Client(timeout=self.timeout) as client:
             response = client.get(
-                f"{self.base_url}/loki/api/v1/query_range",
+                url,
                 params=params,
-                auth=auth,
+                headers=headers,
             )
+            logger.info(f"[GRAFANA-API] Response {response.status_code} {response.text[:300]}")
             response.raise_for_status()
             data = response.json()
 

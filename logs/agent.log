@@ -1,0 +1,108 @@
+2026-04-26 16:43:20,153 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,154 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,154 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 16:43:20,154 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,153 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,155 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,155 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 16:43:20,155 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,155 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 16:43:20,155 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 16:43:20,372 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 16:43:20,372 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 16:43:20,387 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 16:43:20,387 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 16:43:20,560 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,561 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,561 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 16:43:20,561 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:20,562 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 16:43:20,732 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 16:43:20,733 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 16:43:22,598 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 16:43:22,604 INFO devops_agent.nodes.executor [EXECUTOR] Summary: ## 🔍 Diagnoza
+Nie znaleziono żadnych konkretnych informacji ani wyników narzędzi dotyczących zgłoszonego problemu.
+
+## ⚖️ Ocena
+❓ BRAK DANYCH — nie znaleziono żadnych informacji, które mogłyby pomóc z
+2026-04-26 16:43:22,605 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 16:43:22,605 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:22,947 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 16:43:22,948 INFO devops_agent.nodes.executor [EXECUTOR] Summary: # Tools
+
+## multi_tool_use
+
+Nie znaleziono żadnych wyników narzędzi diagnostycznych, które mogłyby pomóc w analizie problemu.
+
+## 🔍 Diagnoza
+Nie znaleziono żadnych danych diagnostycznych, które mogłyb
+2026-04-26 16:43:22,948 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 16:43:22,949 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:43:23,146 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 16:43:23,149 INFO devops_agent.nodes.executor [EXECUTOR] Summary: ## 🔍 Diagnoza
+Pod `iot-agent-dashboard-api` w namespace `iotag-dev` ma status `Running`, ale został zrestartowany już 10690 razy.
+
+## ⚖️ Ocena
+- ✅ ZIDENTYFIKOWANO — znamy objaw, ale nie znamy przyczyn
+2026-04-26 16:43:23,149 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 16:43:23,150 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 16:44:01,996 ERROR devops_agent.adapters.github_adapter [GHAdapter] Failed to list issues for AGH-iot-agent/iot-agent-authentication with state 'open': 
+2026-04-26 16:44:02,188 INFO devops_agent.main Shutting down watchdog…
+2026-04-26 16:44:03,617 ERROR devops_agent.adapters.github_adapter [GHAdapter] Failed to list issues for AGH-iot-agent/iot-agent-login-screen with state 'open': 
+2026-04-26 16:44:04,075 ERROR devops_agent.adapters.github_adapter [GHAdapter] Failed to list issues for AGH-iot-agent/iot-agent-infra with state 'open': 
+2026-04-26 18:20:30,444 INFO devops_agent.graph Tworzenie grafu LangGraph...
+2026-04-26 18:20:30,445 INFO devops_agent.graph Kompilacja grafu LangGraph zakończona.
+2026-04-26 18:20:30,455 INFO devops_agent.main Autostart watchdog: namespace=iotag-dev interval=5 monitor_github=True
+2026-04-26 18:20:30,455 INFO devops_agent.watchdog [WATCHDOG] start: WatchdogConfig(namespace='iotag-dev', interval_seconds=5, monitor_github=True, github_org='AGH-iot-agent', issue_max_age_s=86400)
+2026-04-26 18:20:39,733 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,734 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,734 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 18:20:39,735 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,734 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,735 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,735 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 18:20:39,736 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:39,736 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 18:20:39,735 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 18:20:39,948 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 18:20:39,948 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 18:20:39,949 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 18:20:39,949 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 18:20:39,999 INFO devops_agent.graph [LangGraph] Węzeł: planner, state keys: ['request', 'dry_run', 'context', 'revision_count', 'max_revisions', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:40,000 INFO devops_agent.graph [LangGraph] Węzeł: critic, state keys: ['request', 'dry_run', 'context', 'plan', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:40,000 INFO devops_agent.graph [LangGraph] Routing po critic: executor, revision_count=0
+2026-04-26 18:20:40,000 INFO devops_agent.graph [LangGraph] Węzeł: executor, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:40,001 INFO devops_agent.nodes.executor [EXECUTOR] Step 1/1 — kubernetes/get_rollout_status args={'namespace': 'iotag-dev'} dry_run=False
+2026-04-26 18:20:40,125 INFO devops_agent.nodes.executor [EXECUTOR] Step 1 result status=ok
+2026-04-26 18:20:40,125 INFO devops_agent.nodes.executor [EXECUTOR] Sending results to LLM for interpretation
+2026-04-26 18:20:42,581 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 18:20:42,594 INFO devops_agent.nodes.executor [EXECUTOR] Summary: ## 🔍 Diagnoza
+Brak danych w wynikach narzędzi.
+
+## ❓ Ocena
+Brak danych — nie znaleziono informacji, które pozwoliłyby potwierdzić lub wykluczyć zgłoszony problem.
+
+## 🛠️ Rekomendacja
+Nie znaleziono wy
+2026-04-26 18:20:42,595 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 18:20:42,595 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:43,002 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 18:20:43,007 INFO devops_agent.nodes.executor [EXECUTOR] Summary: ## 🔍 Diagnoza
+Brak danych w wynikach narzędzi — nie znaleziono informacji dotyczących GitHub Actions, które mogłyby pomóc zidentyfikować problem.
+
+## ⚖️ Ocena
+❓ BRAK DANYCH — nie znaleziono wystarczaj
+2026-04-26 18:20:43,008 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 18:20:43,008 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:43,117 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-26 18:20:43,118 INFO devops_agent.nodes.executor [EXECUTOR] Summary: ## 🔍 Diagnoza
+Pod "iot-agent-dashboard-api" w namespace "iotag-dev" jest w stanie "Running", ale został zrestartowany już 10710 razy.
+
+## ⚖️ Ocena
+- ✅ ZIDENTYFIKOWANO
+
+## 🛠️ Rekomendacja
+Należy zbadać
+2026-04-26 18:20:43,118 INFO devops_agent.graph [LangGraph] Routing po executor: finalizer, messages=1
+2026-04-26 18:20:43,119 INFO devops_agent.graph [LangGraph] Węzeł: finalizer, state keys: ['request', 'dry_run', 'context', 'plan', 'critique_passed', 'critique_notes', 'revision_count', 'max_revisions', 'risk_level', 'execution_results', 'execution_summary', 'event_kind', 'issue_title', 'issue_body']
+2026-04-26 18:20:57,839 INFO devops_agent.main Shutting down watchdog…

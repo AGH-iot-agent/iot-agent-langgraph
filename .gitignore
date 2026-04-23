@@ -1,0 +1,9 @@
+.env
+uv.lock
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.devops_agent.env
+iot_Agent_langgraph.egg-info/

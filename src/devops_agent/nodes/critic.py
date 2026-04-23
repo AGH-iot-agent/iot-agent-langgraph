@@ -9,7 +9,6 @@ FORBIDDEN_ACTIONS = {
     "cluster_admin_apply",
 }
 
-
 def critic_node(state: AgentState) -> AgentState:
     notes: list[str] = []
     plan = state.get("plan", [])
@@ -19,14 +18,19 @@ def critic_node(state: AgentState) -> AgentState:
         if action in FORBIDDEN_ACTIONS:
             notes.append(f"Forbidden action detected: {action}")
 
-    if not state.get("dry_run", True):
-        notes.append("Write mode enabled: approval gate required.")
 
     passed = len(notes) == 0
 
-    state["critique_notes"] = notes
-    state["critique_passed"] = passed
-    return state
+    new_revision_count = state.get("revision_count", 0)
+    if not passed:
+        new_revision_count += 1
+
+    return {
+        **state,
+        "critique_notes": notes,
+        "critique_passed": passed,
+        "revision_count": new_revision_count,
+    }
 
 
 def route_after_critic(state: AgentState) -> str:
@@ -37,7 +41,5 @@ def route_after_critic(state: AgentState) -> str:
     max_revisions = state.get("max_revisions", 2)
 
     if current < max_revisions:
-        state["revision_count"] = current + 1
         return "planner"
-
     return "finalizer"

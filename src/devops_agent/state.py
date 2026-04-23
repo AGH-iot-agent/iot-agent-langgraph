@@ -21,4 +21,8 @@ class AgentState(TypedDict, total=False):
     max_revisions: int
     risk_level: RiskLevel
     execution_results: list[dict[str, Any]]
+    execution_summary: str
     final_summary: str
+    event_kind: str
+    issue_title: str
+    issue_body: str
