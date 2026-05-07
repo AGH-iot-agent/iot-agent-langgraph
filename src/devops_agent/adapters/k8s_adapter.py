@@ -32,7 +32,7 @@ class K8sAdapter:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
 
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
 
             pods_json = json.loads(result.stdout)
@@ -53,14 +53,13 @@ class K8sAdapter:
             logger.exception("Exception occurred while getting pods for namespace %s", namespace)
             return {"status": "error", "message": str(e)}
 
-
     def get_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]
         logger.debug("Running command: %s", " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
             pod_json = json.loads(result.stdout)
             logger.debug("Successfully retrieved pod %s in namespace %s", pod_name, namespace)
@@ -69,14 +68,13 @@ class K8sAdapter:
             logger.exception("Exception occurred while getting pod %s in namespace %s", pod_name, namespace)
             return {"status": "error", "message": str(e)}
 
-
     def describe_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "describe", "pod", pod_name, "-n", namespace]
         logger.debug("Running command: %s", " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
             logger.debug("Successfully described pod %s in namespace %s", pod_name, namespace)
             return {"status": "ok", "description": result.stdout}
@@ -96,7 +94,7 @@ class K8sAdapter:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
             events_json = json.loads(result.stdout)
             events = []
@@ -121,7 +119,7 @@ class K8sAdapter:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
             logger.debug("Successfully described event %s in namespace %s", event_name, namespace)
             return {"status": "ok", "description": result.stdout}
@@ -136,7 +134,7 @@ class K8sAdapter:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
 
             events_json = json.loads(result.stdout)
@@ -170,7 +168,7 @@ class K8sAdapter:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.error("Command failed with error: %s", result.stderr)
+                logger.warning("Command failed with error: %s", result.stderr)
                 return {"status": "error", "message": result.stderr}
             deployments_json = json.loads(result.stdout)
             deployments = []
@@ -264,6 +262,47 @@ class K8sAdapter:
                 return {"status": "error", "message": str(exc)}
 
 
+    def apply_manifest_dryrun(self, manifest_yaml: str, namespace: str = "iotag-sbx") -> dict[str, Any]:
+        """Server-side dry-run of a manifest — validates without applying."""
+        import tempfile, os as _os
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+                f.write(manifest_yaml)
+                tmp_path = f.name
+            cmd = ["kubectl", "apply", "--dry-run=server", "-n", namespace, "-f", tmp_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            _os.unlink(tmp_path)
+            if result.returncode != 0:
+                return {"status": "error", "message": result.stderr}
+            return {"status": "ok", "output": result.stdout}
+        except Exception as exc:
+            logger.exception("Exception in apply_manifest_dryrun")
+            return {"status": "error", "message": str(exc)}
+
+
+    def helm_template_render(self, name: str, chart: str, values_override: str = "") -> dict[str, Any]:
+        """Render a Helm chart with optional values override (YAML string)."""
+        import tempfile, os as _os
+        try:
+            cmd = ["helm", "template", name, chart]
+            if values_override:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+                    f.write(values_override)
+                    tmp_path = f.name
+                cmd += ["-f", tmp_path]
+            else:
+                tmp_path = None
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if tmp_path:
+                _os.unlink(tmp_path)
+            if result.returncode != 0:
+                return {"status": "error", "message": result.stderr}
+            return {"status": "ok", "manifests": result.stdout}
+        except Exception as exc:
+            logger.exception("Exception in helm_template_render")
+            return {"status": "error", "message": str(exc)}
+
+
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
         if dry_run:
             return {"status": "ok", "dry_run": True}
@@ -285,6 +324,11 @@ class K8sAdapter:
         if action == "get_rollout_status":
             return self.get_rollout_status(args["namespace"])
         if action == "get_pod_logs":
-            return self.get_pod_logs(args["namespace"], args["pod_name"], args.get("container"), args.get("tail", 100))
+            return self.get_pod_logs(args["namespace"], args.get("pod") or args.get("pod_name", ""), args.get("container"), args.get("tail", 100))
         if action == "restart_deployment":
             return self.restart_deployment(args["namespace"], args["deployment"], dry_run=dry_run)
+        if action == "apply_manifest_dryrun":
+            return self.apply_manifest_dryrun(args["manifest_yaml"], args.get("namespace", "iotag-sbx"))
+        if action == "helm_template_render":
+            return self.helm_template_render(args["name"], args["chart"], args.get("values_override", ""))
+        return {"status": "error", "message": f"Unknown action: {action}"}

@@ -22,34 +22,28 @@ class PrometheusAdapter:
     password: str | None = field(default_factory=lambda: os.getenv("PROMETHEUS_PASSWORD"))
     timeout: int = 20
 
-    # ------------------------------------------------------------------ #
-    #  Public interface                                                    #
-    # ------------------------------------------------------------------ #
-
-    def query(self, args: dict[str, Any]) -> dict[str, Any]:
+    def query(self, query: str, time: str = "") -> dict[str, Any]:
         """Execute an instant PromQL query.
 
-        Expected args:
-            query     – PromQL expression (required)
-            time      – evaluation timestamp (optional, RFC3339 or unix)
+        Args:
+            query – PromQL expression (required)
+            time  – evaluation timestamp (optional, RFC3339 or unix)
         """
-        promql = args.get("query")
-        if not promql:
+        if not query:
             return {"status": "error", "message": "query arg is required for Prometheus query"}
-        return self._instant(str(promql), str(args.get("time", "")))
+        return self._instant(query, time)
 
-    def query_range(self, args: dict[str, Any]) -> dict[str, Any]:
+    def query_range(self, query: str, last_minutes: int = 30, step: str = "1m") -> dict[str, Any]:
         """Execute a PromQL range query.
 
-        Expected args:
+        Args:
             query        – PromQL expression (required)
             last_minutes – look-back window in minutes (default 30)
             step         – resolution step, e.g. "1m" (default "1m")
         """
-        promql = args.get("query")
-        if not promql:
+        if not query:
             return {"status": "error", "message": "query arg is required for Prometheus query_range"}
-        return self._range(str(promql), int(args.get("last_minutes", 30)), str(args.get("step", "1m")))
+        return self._range(query, last_minutes, step)
 
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
         if dry_run:
@@ -73,9 +67,9 @@ class PrometheusAdapter:
 
         try:
             if action in ("query", "get_metrics"):
-                result = self.query(args)
+                result = self.query(**args)
             elif action == "query_range":
-                result = self.query_range(args)
+                result = self.query_range(**args)
             else:
                 result = {"status": "error", "message": f"Unsupported Prometheus action: {action}"}
         except Exception as exc:
@@ -83,10 +77,6 @@ class PrometheusAdapter:
 
         result.update({"tool": "prometheus", "action": action, "args": args, "dry_run": False})
         return result
-
-    # ------------------------------------------------------------------ #
-    #  Private helpers                                                     #
-    # ------------------------------------------------------------------ #
 
     def _auth(self) -> tuple[str, str] | None:
         if self.user and self.password:

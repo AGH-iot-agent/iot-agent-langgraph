@@ -39,7 +39,7 @@ class GitHubPRMonitor(BaseMonitor):
                         continue
                     comments_resp = self._adapter.run("github", "get_pr_comments", {"repo": repo_full_name, "pr_number": pr_number}, dry_run=False)
                     comments = comments_resp.get("comments", []) if comments_resp.get("status") == "ok" else []
-                    found_devops_comment = any("## devops agent" in (c.get("body", "").lower()) for c in comments)
+                    found_devops_comment = any("## gh_action_bot" in (c.get("body", "").lower()) for c in comments)
                     if found_devops_comment:
                         commented_in_repo.add(pr_number)
                         continue

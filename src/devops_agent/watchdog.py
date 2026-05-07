@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, TypedDict
 from devops_agent.event import AgentEvent
@@ -18,11 +19,18 @@ class WatchdogResponse:
 
 @dataclass
 class WatchdogConfig:
-    namespace:        str  = "iot-agent"
-    interval_seconds: int  = 30
-    monitor_github:   bool = True
-    github_org:       str  = "AGH-iot-agent"
-    issue_max_age_s:  int  = 86400
+    namespace:                str  = "iotag-dev"
+    interval_seconds:         int  = 30
+    monitor_github:           bool = True
+    github_org:               str  = "AGH-iot-agent"
+    issue_max_age_s:          int  = 86400
+    monitor_github_issues:    bool = True
+    monitor_github_prs:       bool = True
+    monitor_github_ci:        bool = True
+    monitor_github_pr_builds: bool = True
+    monitor_prometheus:       bool = True
+    monitor_loki:             bool = True
+    monitor_k8s:              bool = True
 
 @dataclass
 class Alert:
@@ -32,15 +40,17 @@ class Alert:
     details: dict[str, Any]
     
 class AgentState(TypedDict, total=False):
-    event_kind: str
+    event_kind:  str
     issue_title: str
-    issue_body: str
+    issue_body:  str
 
 class StatusReport(TypedDict):
-    running: bool
-    last_tick: int | None
+    running:    bool
+    last_tick:  int | None
     last_error: str | None
-    config: dict[str, Any] | None
+    config:     dict[str, Any] | None
+
+_DISPATCH_SEMAPHORE = threading.Semaphore(3)
 
 class AgentWatchdog:
     def __init__(self, adapter, graph, monitors) -> None:
@@ -50,6 +60,7 @@ class AgentWatchdog:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock   = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="watchdog-dispatch")
         self._alerts: list[Alert] = []
         self._status: StatusReport = {
             "running": False, "last_tick": None,
@@ -73,7 +84,6 @@ class AgentWatchdog:
                 "github_org":       config.github_org,
             }
 
-            # Clear initial status 
             self._status = StatusReport(
                 running    = True, 
                 last_tick  = None, 
@@ -128,7 +138,7 @@ class AgentWatchdog:
         while not self._stop_event.is_set():
             tick_error = None
             try:
-                self._tick(config)
+                self._tick()
             except Exception as exc:
                 tick_error = str(exc)
                 logger.exception("[WATCHDOG] tick failed")
@@ -138,7 +148,7 @@ class AgentWatchdog:
                     self._status["last_error"] = tick_error
             self._stop_event.wait(timeout=max(5, config.interval_seconds))
 
-    def _tick(self, config: WatchdogConfig) -> None:
+    def _tick(self) -> None:
         for monitor in self._monitors:
             try:
                 events = monitor.poll()
@@ -146,9 +156,13 @@ class AgentWatchdog:
                 logger.exception("[WATCHDOG] Monitor %s failed", type(monitor).__name__)
                 continue
             for event in events:
-                threading.Thread(target=self._dispatch, args=(event,), daemon=True).start()
+                self._executor.submit(self._dispatch, event)
 
     def _dispatch(self, event: AgentEvent) -> None:
+        with _DISPATCH_SEMAPHORE:
+            self._dispatch_inner(event)
+
+    def _dispatch_inner(self, event: AgentEvent) -> None:
         try:
             state = {
                 "request":        event.to_prompt(),
@@ -161,16 +175,41 @@ class AgentWatchdog:
                 "revision_count": 0,
             }
             result = self._graph.invoke(state)
-            comment = result.get("final_summary") or result.get("execution_summary") or event.to_prompt()
+            raw_comment = result.get("final_summary") or result.get("execution_summary") or event.to_prompt()
+            comment = f"## gh_action_bot\n\n{raw_comment}"
 
             if event.kind == "github_issue":
                 repo_full_name = event.context.get("repo_full_name")
                 issue_number = event.context.get("issue_number")
                 if repo_full_name and issue_number:
+                    pr_url = result.get("pr_url")
+                    if pr_url:
+                        comment = f"{comment}\n\n> 🤖 Agent created a fix PR: {pr_url}"
                     self._adapter.run(
                         "github", "create_issue_comment",
                         {"repo": repo_full_name, "issue_number": issue_number, "body": comment},
                         dry_run=False,
+                    )
+
+            elif event.kind == "github_pr":
+                repo_full_name = event.context.get("repo_full_name")
+                pr_number = event.context.get("pr_number")
+                if repo_full_name and pr_number:
+                    self._adapter.run(
+                        "github", "create_issue_comment",
+                        {"repo": repo_full_name, "issue_number": pr_number, "body": comment},
+                        dry_run=False,
+                    )
+
+            elif event.kind in ("github_ci_failure", "github_pr_build_failure"):
+                pr_url = result.get("pr_url")
+                final = result.get("final_summary", "")
+                if pr_url:
+                    logger.info("[WATCHDOG] Fix PR created for %s: %s", event.kind, pr_url)
+                else:
+                    logger.warning(
+                        "[WATCHDOG] No PR created for %s (%s): %s",
+                        event.kind, event.title, final[:300],
                     )
 
             self._append_alert(event.kind, event.title, event.context)

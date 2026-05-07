@@ -40,13 +40,23 @@ class GitHubIssueMonitor(BaseMonitor):
                         continue
                     comments_resp = self._adapter.run("github", "get_issue_comments", {"repo": repo_full_name, "issue_number": issue_number}, dry_run=False)
                     comments = comments_resp.get("comments", []) if comments_resp.get("status") == "ok" else []
-                    found_devops_comment = any("## devops agent" in (c.get("body", "").lower()) for c in comments)
+                    found_devops_comment = any("## gh_action_bot" in (c.get("body", "").lower()) for c in comments)
                     if found_devops_comment:
                         commented_in_repo.add(issue_number)
                         continue
-                    labels = {str(lbl).lower() for lbl in (issue.get("labels") or [])}
+
+                    raw_labels = issue.get("labels") or []
+                    labels_set = {
+                        lbl.get("name", "").lower() if isinstance(lbl, dict) else str(lbl).lower()
+                        for lbl in raw_labels
+                    }
+
+                    if "iot-devops-agent" not in labels_set:
+                        continue
+
                     title_lower = issue.get("title", "").lower()
-                    is_infra = bool(labels & INFRA_LABELS) or any(kw in title_lower for kw in INFRA_TITLE_KEYWORDS)
+                    is_infra = bool(labels_set & INFRA_LABELS) or any(kw in title_lower for kw in INFRA_TITLE_KEYWORDS)
+                    logger.info("[GitHubIssueMonitor] Detected issue: %s#%d (infra=%s) with labels %s", repo_full_name, issue_number, is_infra, labels_set)
                     events.append(AgentEvent(
                         kind="github_issue",
                         title=f"{repo_full_name}#{issue_number}: {issue.get('title')}",

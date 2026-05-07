@@ -2,46 +2,52 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 from pathlib import Path
 
+from devops_agent.graph_tools import ALL_TOOLS
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
-from devops_agent.graph_tools import ALL_TOOLS
+
 from devops_agent.prompts import _build_system_prompt
+
 
 logger = logging.getLogger(__name__)
 
-_llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, max_tokens=512)
+_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=2000)
 _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
 _adapter = MCPAdapter()
+
+
+def _invoke_with_retry(llm, messages, max_retries: int = 4):
+    """Invoke LLM with exponential backoff on 429 RateLimitError."""
+    from openai import RateLimitError
+    delay = 5.0
+    for attempt in range(max_retries):
+        try:
+            return llm.invoke(messages)
+        except RateLimitError as exc:
+            if attempt == max_retries - 1:
+                raise
+            logger.warning("[EXECUTOR] Rate limit hit (attempt %d/%d), retrying in %.1fs: %s",
+                           attempt + 1, max_retries, delay, exc)
+            time.sleep(delay)
+            delay = min(delay * 2, 60.0)
+    return llm.invoke(messages)  # unreachable, satisfies type checkers
 
 def load_prompt(name: str) -> str:
     return Path(f"../prompts/{name}.md").read_text(encoding="utf-8").strip()
 
-def _build_system_prompt(event_kind: str) -> str:
-    base_rules = load_prompt("base_rules")
-
-    specific_path = f"../prompts/{event_kind}.md"
-    specific = Path(specific_path).read_text(encoding="utf-8").strip() \
-        if Path(specific_path).exists() else ""
-
-    return "\n\n".join([
-        base_rules,
-        specific
-    ])
-
 def executor_node(state: AgentState) -> AgentState:
     plan: list[dict[str, Any]] = state.get("plan", [])
     dry_run: bool = state.get("dry_run", True)
-    original_request: str = state.get("request", "")
-    event_kind = state.get("event_kind", "default") 
+    event_kind = state.get("event_kind", "default")
 
     if not plan:
-        logger.warning("[EXECUTOR] No plan to execute")
         return {
             **state,
             "execution_results": [],
@@ -54,15 +60,11 @@ def executor_node(state: AgentState) -> AgentState:
         action  = step.get("action", "unknown")
         args    = step.get("args", {})
 
-        logger.info("[EXECUTOR] Step %d/%d — %s/%s args=%s dry_run=%s",
-                    i + 1, len(plan), tool, action, args, dry_run)
-
         result = _adapter.run(service=tool, tool=action, params=args, dry_run=dry_run)
 
         if result.get("status") == "error" and "Unknown action" in result.get("message", ""):
             continue
 
-        logger.info("[EXECUTOR] Step %d result status=%s", i + 1, result.get("status"))
         raw_results.append({
             "step":   i + 1,
             "tool":   tool,
@@ -71,7 +73,6 @@ def executor_node(state: AgentState) -> AgentState:
             "result": result,
         })
 
-    # Usuń kroki z błędem Unknown tool
     meaningful_results = [
         r for r in raw_results
         if not (
@@ -80,7 +81,6 @@ def executor_node(state: AgentState) -> AgentState:
         )
     ]
 
-    # Dla github_issue odfiltruj kubernetes
     if event_kind == "github_issue":
         meaningful_results = [
             r for r in meaningful_results
@@ -88,23 +88,44 @@ def executor_node(state: AgentState) -> AgentState:
         ]
 
     results_block = json.dumps(meaningful_results, indent=2, default=str)
-    plan_block    = json.dumps(plan,        indent=2, default=str)
+
+    MAX_RESULTS_CHARS = 8000
+    if len(results_block) > MAX_RESULTS_CHARS:
+        results_block = results_block[-MAX_RESULTS_CHARS:]
+        results_block = "[... truncated to last 8000 chars ...]\n" + results_block
+
+    issue_body = state.get('issue_body', '')
+    MAX_BODY_CHARS = 2000
+    if len(issue_body) > MAX_BODY_CHARS:
+        issue_body = issue_body[:MAX_BODY_CHARS] + "\n[... truncated ...]"
+
+    system_prompt = _build_system_prompt(event_kind)
 
     messages = [
-        SystemMessage(content=_build_system_prompt(event_kind)),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=(
-            f"## Issue\n"
-            f"**Tytuł:** {state.get('issue_title', '')}\n\n"
-            f"**Treść:**\n{state.get('issue_body', '')}\n\n"
+            f"## Event\n"
+            f"**Title:** {state.get('issue_title', '')}\n\n"
+            f"**Body:**\n{issue_body}\n\n"
             f"---\n"
-            f"## Wyniki narzędzi\n"
+            f"## Tool Results\n"
             f"{results_block}\n\n"
-            f"Napisz komentarz GitHub odnoszący się do tego konkretnego problemu."
+            f"---\n"
+            f"Write a GitHub comment that DIRECTLY SOLVES the issue above.\n"
+            f"DO NOT repeat or paraphrase the issue description.\n"
+            f"Your response MUST follow this exact structure:\n\n"
+            f"## \U0001f50d Root Cause\n"
+            f"(one precise sentence identifying the exact cause from tool results)\n\n"
+            f"## \U0001f6e0\ufe0f Proposed Fix\n"
+            f"(exact YAML snippets, kubectl commands, or code changes — be specific)\n\n"
+            f"## \u2705 Steps to Resolve\n"
+            f"(numbered actionable steps a developer can follow right now)\n\n"
+            f"## \u26a0\ufe0f Risk / Side Effects\n"
+            f"(what could go wrong, what to verify after applying the fix)"
         ))
     ]
 
-    logger.info("[EXECUTOR] Sending results to LLM for interpretation")
-    ai_response: AIMessage = _llm_with_tools.invoke(messages)
+    ai_response: AIMessage = _invoke_with_retry(_llm_with_tools, messages)
 
     tool_call_rounds = 0
     while getattr(ai_response, "tool_calls", None) and tool_call_rounds < 3:
@@ -115,8 +136,6 @@ def executor_node(state: AgentState) -> AgentState:
             fn_name   = tc["name"]
             fn_args   = tc["args"]
             tool_call_id = tc["id"]
-
-            logger.info("[EXECUTOR] LLM tool call: %s(%s)", fn_name, fn_args)
 
             matched = next((t for t in ALL_TOOLS if t.name == fn_name), None)
             if matched:
@@ -132,15 +151,13 @@ def executor_node(state: AgentState) -> AgentState:
                 tool_call_id=tool_call_id,
             ))
 
-        ai_response = _llm_with_tools.invoke(messages)
+        ai_response = _invoke_with_retry(_llm_with_tools, messages)
 
     summary: str = (
         ai_response.content
         if isinstance(ai_response.content, str)
         else json.dumps(ai_response.content, default=str)
     )
-
-    logger.info("[EXECUTOR] Summary: %s", summary[:200])
 
     return {
         **state,

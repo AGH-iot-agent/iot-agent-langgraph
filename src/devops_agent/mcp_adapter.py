@@ -20,15 +20,17 @@ def _build_registry() -> dict[str, Any]:
 
     return {
         "kubernetes": {
-            "get_pods":             k8s.get_pods,
-            "get_pod":              k8s.get_pod,
-            "describe_pod":         k8s.describe_pod,
-            "get_events":           k8s.get_events,
-            "describe_event":       k8s.describe_event,
-            "get_pod_events":       k8s.get_pod_events,
-            "get_rollout_status":   k8s.get_rollout_status,
-            "get_pod_logs":         k8s.get_pod_logs,
-            "restart_deployment":   k8s.restart_deployment,
+            "get_pods":              k8s.get_pods,
+            "get_pod":               k8s.get_pod,
+            "describe_pod":          k8s.describe_pod,
+            "get_events":            k8s.get_events,
+            "describe_event":        k8s.describe_event,
+            "get_pod_events":        k8s.get_pod_events,
+            "get_rollout_status":    k8s.get_rollout_status,
+            "get_pod_logs":          k8s.get_pod_logs,
+            "restart_deployment":    k8s.restart_deployment,
+            "apply_manifest_dryrun": k8s.apply_manifest_dryrun,
+            "helm_template_render":  k8s.helm_template_render,
         },
         "prometheus": {
             "query":                prom.query,
@@ -51,6 +53,12 @@ def _build_registry() -> dict[str, Any]:
             "get_workflow_runs":    gh.get_workflow_runs,
             "get_job_logs":         gh.get_job_logs,
             "list_org_repos":       gh.list_org_repos,
+            "get_pr_comments":      gh.get_pr_comments,
+            "get_issue_comments":   gh.get_issue_comments,
+            "create_pull_request":  gh.create_pull_request,
+            "get_branch_sha":       gh.get_branch_sha,
+            "create_branch":        gh.create_branch,
+            "commit_file":          gh.commit_file,
         },
     }
 
@@ -79,9 +87,20 @@ class MCPAdapter:
         if "dry_run" in sig.parameters:
             params = {**params, "dry_run": dry_run}
 
+        has_var_keyword = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        )
+        if not has_var_keyword:
+            params = {k: v for k, v in params.items() if k in sig.parameters}
+
         try:
             result = fn(**params)
             return result
         except Exception as exc:
-            logger.exception("MCPAdapter.run failed: %s/%s", service, tool)
+            import httpx, httpcore
+            if isinstance(exc, (httpx.ConnectError, httpcore.ConnectError, ConnectionRefusedError)):
+                logger.warning("MCPAdapter.run: %s/%s — service unreachable (%s)", service, tool, exc)
+            else:
+                logger.exception("MCPAdapter.run failed: %s/%s", service, tool)
             return {"status": "error", "message": str(exc)}

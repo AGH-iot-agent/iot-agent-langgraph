@@ -26,3 +26,8 @@ class AgentState(TypedDict, total=False):
     event_kind: str
     issue_title: str
     issue_body: str
+    # CI failure → PR flow
+    ci_fix_proposal: dict[str, Any] | None      # {files: [{path, content}], root_cause: str}
+    validation_result: dict[str, Any] | None    # {passed: bool, errors: list[str], output: str}
+    pr_url: str | None                          # URL of the created PR (if opened)
+    messages: list[Any]                         # LangChain message history for tool calls

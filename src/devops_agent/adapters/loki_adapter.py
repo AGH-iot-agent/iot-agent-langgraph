@@ -1,32 +1,35 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LokiAdapter:
-    base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://grafana-dev.iotag-dev.com").rstrip("/"))
-    user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER", "IOTAG-AGENT"))
-    password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD", "sa-1-iotag-agent"))
+    base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://loki.iotag-dev.svc.cluster.local:3100").rstrip("/"))
+    user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER"))
+    password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD"))
     timeout: int = 20
 
-    def query_range(self, args: dict[str, Any]) -> dict[str, Any]:
+    def query_range(self, **kwargs) -> dict[str, Any]:
         """Execute a LogQL range query.
 
-        Expected args:
-            query      – LogQL expression, e.g. '{namespace="iot-agent"}'
-            service    – convenience: sets {app="<service>"} label filter
-            namespace  – convenience: sets {namespace="<ns>"} label filter
+        Keyword args:
+            query        – LogQL expression, e.g. '{namespace="iot-agent"}'
+            service      – convenience: sets {app="<service>"} label filter
+            namespace    – convenience: sets {namespace="<ns>"} label filter
             last_minutes – look-back window in minutes (default 30)
-            limit      – max log lines returned (default 200)
+            limit        – max log lines returned (default 200)
         """
-        logql = self._build_logql(args)
-        last_minutes = int(args.get("last_minutes", 30))
-        limit = int(args.get("limit", 200))
+        logql = self._build_logql(kwargs)
+        last_minutes = int(kwargs.get("last_minutes", 30))
+        limit = int(kwargs.get("limit", 200))
         return self._request(logql, last_minutes, limit)
 
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
@@ -51,7 +54,7 @@ class LokiAdapter:
 
         try:
             if action in ("query_range", "get_logs"):
-                result = self.query_range(args)
+                result = self.query_range(**args)
             else:
                 result = {"status": "error", "message": f"Unsupported Loki action: {action}"}
         except Exception as exc:
