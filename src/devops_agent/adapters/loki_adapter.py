@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+import httpcore
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,9 @@ class LokiAdapter:
     base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://loki.iotag-dev.svc.cluster.local:3100").rstrip("/"))
     user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER"))
     password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD"))
-    timeout: int = 20
+    timeout_connect: int = field(default_factory=lambda: int(os.getenv("LOKI_TIMEOUT_CONNECT", "5")))
+    timeout_read: int = field(default_factory=lambda: int(os.getenv("LOKI_TIMEOUT_READ", "20")))
+    retry_max_attempts: int = field(default_factory=lambda: max(1, int(os.getenv("LOKI_QUERY_RETRY_MAX", "2"))))
 
     def query_range(self, **kwargs) -> dict[str, Any]:
         """Execute a LogQL range query.
@@ -57,6 +61,11 @@ class LokiAdapter:
                 result = self.query_range(**args)
             else:
                 result = {"status": "error", "message": f"Unsupported Loki action: {action}"}
+        except (httpx.TimeoutException, httpcore.TimeoutException) as exc:
+            result = {
+                "status": "degraded",
+                "message": f"Loki query timeout: {exc}",
+            }
         except Exception as exc:
             result = {"status": "error", "message": str(exc)}
 
@@ -79,11 +88,29 @@ class LokiAdapter:
         selector = ", ".join(f'{k}="{v}"' for k, v in labels.items())
         return "{" + selector + "}"
 
-    def _request(self, logql: str, last_minutes: int, limit: int) -> dict[str, Any]:
-        import time
-
+    @staticmethod
+    def _build_time_range(last_minutes: int) -> tuple[int, int]:
         end_ns = int(time.time() * 1e9)
         start_ns = end_ns - last_minutes * 60 * int(1e9)
+        return start_ns, end_ns
+
+    def _build_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.user and self.password:
+            import base64
+            basic = f"{self.user}:{self.password}"
+            headers["Authorization"] = "Basic " + base64.b64encode(basic.encode()).decode()
+        return headers
+
+    def _request_once(self, url: str, params: dict[str, str], headers: dict[str, str], timeout: httpx.Timeout, limits: httpx.Limits) -> dict[str, Any]:
+        with httpx.Client(timeout=timeout, limits=limits) as client:
+            response = client.get(url, params=params, headers=headers)
+            logger.info(f"[GRAFANA-API] Response {response.status_code} {response.text[:300]}")
+            response.raise_for_status()
+            return response.json()
+
+    def _request(self, logql: str, last_minutes: int, limit: int) -> dict[str, Any]:
+        start_ns, end_ns = self._build_time_range(last_minutes)
 
         params = {
             "query": logql,
@@ -93,24 +120,44 @@ class LokiAdapter:
             "direction": "backward",
         }
 
-        auth = (self.user, self.password) if self.user and self.password else None
-        headers = {}
-        if self.user and self.password:
-            import base64
-            basic = f"{self.user}:{self.password}"
-            headers["Authorization"] = "Basic " + base64.b64encode(basic.encode()).decode()
+        headers = self._build_headers()
 
         url = f"{self.base_url}/loki/api/v1/query_range"
         logger.info(f"[GRAFANA-API] GET {url} params={params}")
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.get(
-                url,
-                params=params,
-                headers=headers,
-            )
-            logger.info(f"[GRAFANA-API] Response {response.status_code} {response.text[:300]}")
-            response.raise_for_status()
-            data = response.json()
+        timeout = httpx.Timeout(
+            connect=self.timeout_connect,
+            read=self.timeout_read,
+            write=self.timeout_connect,
+            pool=self.timeout_connect,
+        )
+        limits = httpx.Limits(max_connections=4, max_keepalive_connections=2)
+        last_timeout_exc: Exception | None = None
+        data: dict[str, Any] | None = None
+        for attempt in range(1, self.retry_max_attempts + 1):
+            try:
+                data = self._request_once(url, params, headers, timeout, limits)
+                break
+            except (httpx.TimeoutException, httpcore.TimeoutException) as exc:
+                last_timeout_exc = exc
+                if attempt >= self.retry_max_attempts:
+                    raise
+                sleep_s = 0.5 * attempt
+                logger.warning(
+                    "[GRAFANA-API] timeout on attempt %d/%d for %s; retry in %.1fs (%s)",
+                    attempt,
+                    self.retry_max_attempts,
+                    logql,
+                    sleep_s,
+                    exc,
+                )
+                time.sleep(sleep_s)
+        else:
+            if last_timeout_exc:
+                raise last_timeout_exc
+            raise RuntimeError("Loki request failed without explicit exception")
+
+        if data is None:
+            raise RuntimeError("Loki returned no data")
 
         streams = data.get("data", {}).get("result", [])
         lines: list[str] = []

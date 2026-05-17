@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from devops_agent.adapters.k8s_adapter import K8sAdapter
 from devops_agent.adapters.prometheus_adapter import PrometheusAdapter
 from devops_agent.adapters.loki_adapter import LokiAdapter
 from devops_agent.adapters.github_adapter import GHAdapter
+from devops_agent.metrics import agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ def _build_registry() -> dict[str, Any]:
             "restart_deployment":    k8s.restart_deployment,
             "apply_manifest_dryrun": k8s.apply_manifest_dryrun,
             "helm_template_render":  k8s.helm_template_render,
+            "helm_validate_deployability": k8s.helm_validate_deployability,
         },
         "prometheus": {
             "query":                prom.query,
@@ -77,9 +80,23 @@ class MCPAdapter:
             Dispatch a tool call to the correct adapter.
             dry_run is injected into params for mutating tools.
         """
+        started_at = time.time()
+
+        def _record(status: str, timeout: bool = False) -> None:
+            agent_metrics.record_adapter_call(
+                {
+                    "service": service,
+                    "tool": tool,
+                    "status": status,
+                    "timeout": timeout,
+                    "latency_ms": (time.time() - started_at) * 1000.0,
+                }
+            )
+
         try:
             fn = self._registry[service][tool]
         except KeyError:
+            _record("error")
             return {"status": "error", "message": f"Unknown tool: {service}/{tool}"}
 
         import inspect
@@ -96,11 +113,31 @@ class MCPAdapter:
 
         try:
             result = fn(**params)
+            _record(str(result.get("status", "ok")), timeout=str(result.get("status", "")).lower() == "degraded")
             return result
         except Exception as exc:
             import httpx, httpcore
-            if isinstance(exc, (httpx.ConnectError, httpcore.ConnectError, ConnectionRefusedError)):
+            _timeouts = (
+                httpx.ReadTimeout,
+                httpx.ConnectTimeout,
+                httpcore.ReadTimeout,
+                httpcore.ConnectTimeout,
+            )
+            _unreachable = (
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpcore.ConnectError,
+                httpcore.ReadError,
+                ConnectionRefusedError,
+            )
+            if isinstance(exc, _timeouts):
+                logger.warning("MCPAdapter.run: %s/%s — timed out (%s)", service, tool, exc)
+                _record("degraded", timeout=True)
+                return {"status": "degraded", "message": str(exc)}
+            if isinstance(exc, _unreachable):
                 logger.warning("MCPAdapter.run: %s/%s — service unreachable (%s)", service, tool, exc)
+                _record("error")
             else:
                 logger.exception("MCPAdapter.run failed: %s/%s", service, tool)
+                _record("error")
             return {"status": "error", "message": str(exc)}

@@ -1,0 +1,2 @@
+[console_scripts]
+promptops = devops_agent.promptops.cli:main

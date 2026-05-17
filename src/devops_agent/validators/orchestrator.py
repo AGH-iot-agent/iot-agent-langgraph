@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from typing import Any
+
+from devops_agent.validators.file_roles import classify_file_role
+from devops_agent.validators.helm_rules import validate_helm_values_file
+from devops_agent.validators.manifest_rules import validate_manifest_content
+
+
+def _validate_file_entry(
+    adapter,
+    *,
+    file_entry: dict[str, Any],
+    repo: str,
+    branch: str,
+    namespace: str,
+    service_name: str,
+    release_name: str,
+    chart_type: str,
+) -> tuple[list[str], list[str], dict[str, Any]]:
+    path: str = file_entry.get("path", "")
+    content: str = file_entry.get("content") or file_entry.get("fixed_snippet") or ""
+    original_snippet: str = file_entry.get("original_snippet", "") or ""
+    role = classify_file_role(path)
+
+    detail: dict[str, Any] = {"path": path, "role": role}
+
+    if not content:
+        detail.update({"status": "error", "reason": "empty content"})
+        return [f"{path}: empty content - skipping"], [], detail
+
+    if role == "helm_values":
+        errors, outputs, patch_meta = validate_helm_values_file(
+            adapter,
+            path=path,
+            repo=repo,
+            branch=branch,
+            namespace=namespace,
+            service_name=service_name,
+            release_name=release_name,
+            chart_type=chart_type,
+            original_snippet=original_snippet,
+            content=content,
+        )
+        detail.update(patch_meta)
+        detail["rules"] = ["helm_deployability"]
+    elif role == "kubernetes_manifest":
+        errors, outputs = validate_manifest_content(adapter, content, path, namespace)
+        detail.update({"patchable": True, "patch_reason": "direct_manifest_validation"})
+        detail["rules"] = ["yaml_parse", "kind_specific_checks", "server_dry_run"]
+    else:
+        errors = []
+        outputs = [f"{path}: non-YAML file - skipping k8s validation"]
+        detail.update({"patchable": True, "patch_reason": "non_yaml_skipped"})
+        detail["rules"] = ["skip_non_yaml"]
+
+    detail["status"] = "error" if errors else "ok"
+    if errors:
+        detail["errors"] = errors
+
+    return errors, outputs, detail
+
+
+def validate_fix_proposal(
+    adapter,
+    *,
+    proposal: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    files: list[dict[str, Any]] = proposal.get("files", [])
+    namespace: str = context.get("namespace", "iotag-sbx")
+    repo: str = context.get("repo_full_name", "")
+    branch: str = context.get("branch", "main")
+    service_name: str = repo.split("/")[-1] or "ci-dry-run"
+    release_name: str = context.get("release_name") or service_name
+    chart_type: str = context.get("chart_type", "deployment")
+
+    if not files:
+        return {
+            "passed": False,
+            "errors": ["No files in fix proposal - nothing to validate."],
+            "output": "",
+            "details": [],
+        }
+
+    errors: list[str] = []
+    outputs: list[str] = []
+    details: list[dict[str, Any]] = []
+
+    for file_entry in files:
+        file_errors, file_outputs, detail = _validate_file_entry(
+            adapter,
+            file_entry=file_entry,
+            repo=repo,
+            branch=branch,
+            namespace=namespace,
+            service_name=service_name,
+            release_name=release_name,
+            chart_type=chart_type,
+        )
+        errors.extend(file_errors)
+        outputs.extend(file_outputs)
+        details.append(detail)
+
+    return {
+        "passed": len(errors) == 0,
+        "errors": errors,
+        "output": "\n".join(outputs),
+        "details": details,
+    }

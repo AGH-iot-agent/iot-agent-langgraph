@@ -55,3 +55,46 @@ What else might be affected by this change.
 - Java services: Spring Boot — minimum 256Mi memory, actuator health probes on `/actuator/health/liveness` and `/actuator/health/readiness`
 - Port names in probes must match the service port name (typically `default-service`), not port numbers
 - `replicaCount` must be an integer, never a string
+
+## Common deploy-step failure patterns
+
+### CrashLoopBackOff after deploy
+Always fetch K8s pod logs AND K8s events before concluding root cause.
+```bash
+kubectl logs <pod> -n <namespace> --previous   # last exit logs
+kubectl describe pod <pod> -n <namespace>       # events + exit code
+```
+Common causes and fixes:
+- **Exit code 137 / OOMKilled**: `resources.limits.memory` too low. Spring Boot minimum is `256Mi`; typical is `512Mi`. Fix: increase `resources.limits.memory` and `resources.requests.memory` in `values-dev.yaml`.
+- **DB connection refused at startup (`HikariPool`)**: `SPRING_DATASOURCE_URL` points to `localhost` or wrong hostname. Correct K8s DNS pattern: `jdbc:postgresql://<service-name>.<namespace>.svc.cluster.local:<port>/<db>`. Example: `jdbc:postgresql://postgres.iotag-dev.svc.cluster.local:5432/iotdb`. Fix the URL in Helm `extraEnv` in `values-dev.yaml`.
+- **Wrong probe port number**: liveness/readiness probe uses a bare integer (e.g. `port: 9999`) instead of the named port (`port: default-service`). Pod fails kubelet health checks and enters CrashLoopBackOff.
+- **Missing ConfigMap/Secret ref**: application startup fails with `secret not found` or `configmap not found`. The Helm values reference a secret key that doesn't exist in the namespace. Fix: align the secret/configmap name in values with the deployed resource.
+
+### ImagePullBackOff
+```
+Failed to pull image "<registry>/<image>:<tag>": not found
+```
+Fix: the image tag in `values-sbx.yaml` (`image.tag`) was not pushed to the registry before the deploy step ran. Ensure the build job completes and publishes the image before the deploy job starts (`needs: [build]` in workflow YAML).
+
+### Helm upgrade failed — existing resource conflict
+```
+Error: UPGRADE FAILED: rendered manifests contain a resource that already exists
+```
+Fix: a `VirtualService`, `ConfigMap`, or `Secret` with the same name was created outside Helm. Delete the orphaned resource:
+```bash
+kubectl delete virtualservice <name> -n <namespace>
+```
+Then re-run the pipeline.
+
+### Resource quota exceeded
+```
+exceeded quota: ... pods / requests.cpu / requests.memory
+```
+Fix: check `kubectl describe resourcequota -n <namespace>`. Either reduce `replicaCount` of another deployment or increase the limit. Do not reduce the failing service's resources below Spring Boot minimums.
+
+### Workflow step: `${{ env.VAR }}` in `with:` block fails
+```
+Unrecognized named-value: 'env'
+```
+The `env` context is not available inside reusable workflow `with:` blocks. Replace with an explicit output from the calling job: `${{ needs.<job-name>.outputs.<output-name> }}`.
+

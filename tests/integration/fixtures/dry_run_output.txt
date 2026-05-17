@@ -1,0 +1,3 @@
+validator preflight OK: chart source is smb URI (smb://192.168.191.208/localshare/iot-agent/helm-charts/iot-agent-login-screen/deployment-1.0.0-test.tgz)
+validator preflight OK: kubernetes reachable for namespace iotag-dev
+helm deployability validation OK for Helm/values-sbx.yaml

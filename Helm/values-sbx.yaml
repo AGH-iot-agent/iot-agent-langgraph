@@ -189,12 +189,7 @@ globalEnvs:
 globalEnvsSecondary: []
 
 # A tertiary source for env variables (eg: used for a specific env (eg: dev, or staging))
-extraEnvs:
-  - name: LOKI_URL
-    value: "http://loki.iotag-sbx.svc.cluster.local:3100"
-  - name: PROMETHEUS_URL
-    value: "http://kube-prometheus-stack-prometheus.iotag-sbx.svc.cluster.local:9090"
-
+extraEnvs: []
 # stdin and tty status
 tty: false
 

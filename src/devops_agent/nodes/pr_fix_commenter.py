@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import difflib
 import logging
+import re
+from datetime import datetime, timezone
 from typing import Any
 
 from devops_agent.mcp_adapter import MCPAdapter
@@ -36,6 +38,9 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
 
     proposal: dict[str, Any] = state.get("ci_fix_proposal") or {}
     validation: dict[str, Any] = state.get("validation_result") or {}
+    validation_history: list[dict[str, Any]] = list(state.get("validation_history") or [])
+    fix_attempt: int = int(state.get("fix_attempt", 0))
+    max_fix_attempts: int = int(state.get("max_fix_attempts", 3))
 
     root_cause: str = proposal.get("root_cause", "unknown — agent could not determine root cause")
     error_message: str = proposal.get("error_message", "")
@@ -48,7 +53,18 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     fix_pr_url: str | None = None
     fix_branch: str | None = None
     if files and repo and branch and not dry_run:
-        fix_branch, fix_pr_url = _create_fix_pr(repo, branch, files, root_cause, pr_number)
+        fix_branch, fix_pr_url = _create_fix_pr(
+            repo,
+            branch,
+            files,
+            root_cause,
+            pr_number,
+            run_url=run_url,
+            validation=validation,
+            validation_history=validation_history,
+            fix_attempt=fix_attempt,
+            max_fix_attempts=max_fix_attempts,
+        )
         if fix_pr_url:
             logger.info("[PR_FIX_COMMENTER] Fix PR created: %s", fix_pr_url)
         else:
@@ -57,6 +73,9 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     comment_body = _build_comment(
         root_cause, files, run_url, namespace, validation, error_message, description,
         fix_pr_url=fix_pr_url, fix_branch=fix_branch,
+        validation_history=validation_history,
+        fix_attempt=fix_attempt,
+        max_fix_attempts=max_fix_attempts,
     )
 
     if not repo or not pr_number:
@@ -93,12 +112,18 @@ def _create_fix_pr(
     files: list[dict[str, Any]],
     root_cause: str,
     pr_number: int,
+    run_url: str = "",
+    validation: dict[str, Any] | None = None,
+    validation_history: list[dict[str, Any]] | None = None,
+    fix_attempt: int = 0,
+    max_fix_attempts: int = 3,
 ) -> tuple[str | None, str | None]:
     """
     Create a fix branch from `branch`, commit all fixed files, and open a PR
     targeting `branch` (not main). Returns (fix_branch_name, pr_url) or (None, None).
     """
-    fix_branch = f"fix/agent-ci-{branch[:40]}"
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    fix_branch = f"fix/PR-{pr_number}-{ts}"
 
     sha_result = _adapter.run("github", "get_branch_sha", {"repo": repo, "branch": branch}, dry_run=False)
     if sha_result.get("status") != "ok":
@@ -120,13 +145,29 @@ def _create_fix_pr(
     for file_entry in files:
         path = file_entry.get("path", "")
         original_snippet: str = file_entry.get("original_snippet", "") or ""
-        fixed_snippet: str = file_entry.get("fixed_snippet") or file_entry.get("content") or ""
-        if not path or not fixed_snippet:
+        fixed_snippet: str = file_entry.get("fixed_snippet") or ""
+        explicit_content: str = file_entry.get("content") or ""
+        if not path:
             continue
-        content = _patch_file_content(repo, path, branch, original_snippet, fixed_snippet)
-        if content is None:
-            logger.warning("[PR_FIX_COMMENTER] Skipping %s — patch failed", path)
-            continue
+
+        # When original_snippet is absent the LLM is providing a full-file replacement.
+        # Use the content directly — calling _patch_file_content with empty original_snippet
+        # always returns None (safety guard), so we must bypass it here.
+        if not original_snippet:
+            content = fixed_snippet or explicit_content
+            if not content:
+                logger.warning("[PR_FIX_COMMENTER] Skipping %s — no content", path)
+                continue
+            logger.info("[PR_FIX_COMMENTER] Using full-file replacement for %s", path)
+        else:
+            patch_source = fixed_snippet or explicit_content
+            if not patch_source:
+                logger.warning("[PR_FIX_COMMENTER] Skipping %s — empty content", path)
+                continue
+            content = _patch_file_content(repo, path, branch, original_snippet, patch_source)
+            if content is None:
+                logger.warning("[PR_FIX_COMMENTER] Skipping %s — patch failed", path)
+                continue
         commit_result = _adapter.run(
             "github", "commit_file",
             {
@@ -147,10 +188,33 @@ def _create_fix_pr(
         return fix_branch, None
 
     pr_title = f"fix: agent CI repair for PR #{pr_number} on {branch}"
+    val = validation or {}
+    val_passed = val.get("passed", True)
+    val_status = "passed ✅" if val_passed else "failed ❌"
+    val_banner = (
+        "\n> ⚠️ **Validation (dry-run) FAILED** — review carefully and do NOT merge blindly.\n"
+        if not val_passed else ""
+    )
+    val_errors = "\n".join(val.get("errors", []))
+    val_output = val.get("output", "")
+    run_link = f"\n**Failing run:** {run_url}\n" if run_url else ""
+    attempts_section = _build_attempts_section(
+        validation_history or [],
+        fix_attempt=fix_attempt,
+        max_fix_attempts=max_fix_attempts,
+    )
+
     pr_body = (
-        f"Automated fix for CI failure on PR #{pr_number}.\n\n"
-        f"**Root cause:** {root_cause}\n\n"
+        f"## gh_action_bot — Automated CI Fix\n\n"
+        f"> Automatically generated after detecting a CI failure on PR #{pr_number}.\n"
+        f"{run_link}"
+        f"{val_banner}"
+        f"\n**Root cause:** {root_cause}\n\n"
         f"**Target branch:** `{branch}`\n\n"
+        f"### Validation (sandbox dry-run)\n"
+        f"Status: {val_status}\n\n"
+        f"```\n{val_output}\n{val_errors}\n```\n\n"
+        f"{attempts_section}"
         f"Merge this into `{branch}` and re-run CI."
     )
     pr_result = _adapter.run(
@@ -167,18 +231,33 @@ def _create_fix_pr(
 
 def _file_diff(f: dict[str, Any]) -> str:
     path = f["path"]
-    original = f.get("original_snippet", "") or f.get("content", "")
-    fixed = f.get("fixed_snippet", "") or f.get("content", "")
-    if original and fixed and original != fixed:
-        diff_str = "".join(difflib.unified_diff(
-            original.splitlines(keepends=True),
-            fixed.splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
-            lineterm="",
-        ))[:3000]
+    original_snippet: str = f.get("original_snippet", "") or ""
+    fixed_snippet: str = f.get("fixed_snippet", "") or ""
+    explicit_content: str = f.get("content", "") or ""
+
+    if original_snippet and fixed_snippet:
+        # Snippet-level patch: show diff of the changed section only
+        original = original_snippet
+        fixed = fixed_snippet
+    elif not original_snippet and (fixed_snippet or explicit_content):
+        # Full-file replacement: diff against an empty "before" so all lines show as added (+)
+        # This makes the proposed change clearly visible in the PR comment.
+        original = ""
+        fixed = fixed_snippet or explicit_content
     else:
-        diff_str = fixed[:2000] if fixed else ""
+        return ""
+
+    if original == fixed:
+        return ""
+
+    diff_str = "".join(difflib.unified_diff(
+        original.splitlines(keepends=True),
+        fixed.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+        lineterm="",
+    ))[:3000]
+
     if not diff_str:
         return ""
     return (
@@ -238,6 +317,9 @@ def _build_comment(
     description: str = "",
     fix_pr_url: str | None = None,
     fix_branch: str | None = None,
+    validation_history: list[dict[str, Any]] | None = None,
+    fix_attempt: int = 0,
+    max_fix_attempts: int = 3,
 ) -> str:
     validation_passed = validation.get("passed", False)
     validation_status = "passed" if validation_passed else "failed"
@@ -248,6 +330,11 @@ def _build_comment(
     desc_block = f"{description}\n\n" if description else ""
 
     file_section, diff_sections = _build_diff_sections(files)
+    attempts_section = _build_attempts_section(
+        validation_history or [],
+        fix_attempt=fix_attempt,
+        max_fix_attempts=max_fix_attempts,
+    )
 
     validation_block = (
         f"### Validation on `{namespace}`\n"
@@ -286,9 +373,42 @@ def _build_comment(
         f"{file_section}"
         f"{diff_sections}"
         f"{validation_block}\n"
+        f"{attempts_section}"
         f"{next_steps}"
         f"{action_note}\n\n"
         f"---\n"
         f"*Review before applying. The agent performs dry-run validation but cannot guarantee "
         f"correctness for all edge cases.*"
     )
+
+
+def _build_attempts_section(
+    validation_history: list[dict[str, Any]],
+    *,
+    fix_attempt: int,
+    max_fix_attempts: int,
+) -> str:
+    if not validation_history:
+        return ""
+
+    header = (
+        f"### Repair Attempt History\n"
+        f"Attempts used: {fix_attempt}/{max_fix_attempts}\n\n"
+    )
+
+    blocks: list[str] = []
+    for index, attempt in enumerate(validation_history, start=1):
+        status = "passed" if attempt.get("passed") else "failed"
+        errors = "\n".join(attempt.get("errors", [])) or "(no errors)"
+        output = (attempt.get("output", "") or "")[:1200]
+        blocks.append(
+            f"<details>\n"
+            f"<summary>Attempt {index}: {status}</summary>\n\n"
+            f"**Errors**\n"
+            f"```\n{errors}\n```\n\n"
+            f"**Output**\n"
+            f"```\n{output}\n```\n"
+            f"</details>\n\n"
+        )
+
+    return header + "".join(blocks)

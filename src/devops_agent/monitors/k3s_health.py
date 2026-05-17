@@ -3,6 +3,7 @@ import logging
 import subprocess
 import json
 import os
+import time
 from devops_agent.event import AgentEvent
 from devops_agent.monitors.base import BaseMonitor
 from devops_agent.mcp_adapter import MCPAdapter
@@ -16,6 +17,10 @@ class K3sHealthMonitor(BaseMonitor):
         self._alerted: set[str] = set()
         self._alerted_orphans: set[str] = set()
         self._alerted_vs: set[str] = set()
+        self._kubectl_timeout_s = max(1, int(os.getenv("K3S_HEALTH_KUBECTL_TIMEOUT_SEC", "15")))
+        self._retry_max = max(1, int(os.getenv("K3S_HEALTH_KUBECTL_RETRY_MAX", "2")))
+        self._error_log_cooldown_s = max(1, int(os.getenv("K3S_HEALTH_ERROR_COOLDOWN_SEC", "120")))
+        self._last_error_log_at: dict[str, float] = {}
 
     def poll(self) -> list[AgentEvent]:
         events = []
@@ -74,10 +79,84 @@ class K3sHealthMonitor(BaseMonitor):
 
     def _fetch_k8s_items(self, kind: str) -> list[dict]:
         cmd = ["kubectl", "get", kind, "-n", self._namespace, "-o", "json"]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ, timeout=15)
-        if result.returncode != 0:
-            return []
-        return json.loads(result.stdout).get("items", [])
+        for attempt in range(1, self._retry_max + 1):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    env=os.environ,
+                    timeout=self._kubectl_timeout_s,
+                )
+            except subprocess.TimeoutExpired as exc:
+                if attempt >= self._retry_max:
+                    self._log_throttled(
+                        f"fetch_timeout:{kind}",
+                        logging.WARNING,
+                        "[K3sHealthMonitor] timeout getting %s in %s after %d attempts (%s)",
+                        kind,
+                        self._namespace,
+                        attempt,
+                        exc,
+                    )
+                    return []
+                sleep_s = 0.5 * attempt
+                logger.warning(
+                    "[K3sHealthMonitor] timeout getting %s in %s, retry %d/%d in %.1fs",
+                    kind,
+                    self._namespace,
+                    attempt,
+                    self._retry_max,
+                    sleep_s,
+                )
+                time.sleep(sleep_s)
+                continue
+
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout).get("items", [])
+                except json.JSONDecodeError as exc:
+                    self._log_throttled(
+                        f"fetch_bad_json:{kind}",
+                        logging.WARNING,
+                        "[K3sHealthMonitor] invalid JSON for %s in %s: %s",
+                        kind,
+                        self._namespace,
+                        exc,
+                    )
+                    return []
+
+            if attempt >= self._retry_max:
+                self._log_throttled(
+                    f"fetch_cmd_error:{kind}",
+                    logging.WARNING,
+                    "[K3sHealthMonitor] command failed for %s in %s: %s",
+                    kind,
+                    self._namespace,
+                    (result.stderr or "").strip(),
+                )
+                return []
+
+            sleep_s = 0.5 * attempt
+            logger.warning(
+                "[K3sHealthMonitor] command failed for %s in %s, retry %d/%d in %.1fs",
+                kind,
+                self._namespace,
+                attempt,
+                self._retry_max,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+
+        return []
+
+    def _log_throttled(self, key: str, level: int, msg: str, *args: object) -> None:
+        now = time.time()
+        last = self._last_error_log_at.get(key, 0.0)
+        if now - last < self._error_log_cooldown_s:
+            return
+        self._last_error_log_at[key] = now
+        logger.log(level, msg, *args)
 
     def _check_orphaned_resources(
         self,
@@ -92,7 +171,13 @@ class K3sHealthMonitor(BaseMonitor):
             try:
                 events.extend(self._scan_orphaned_kind(kind, referenced))
             except Exception:
-                logger.exception("[K3sHealthMonitor] orphan check failed for %s in %s", kind, self._namespace)
+                self._log_throttled(
+                    f"orphan_check_failed:{kind}",
+                    logging.ERROR,
+                    "[K3sHealthMonitor] orphan check failed for %s in %s",
+                    kind,
+                    self._namespace,
+                )
         return events
 
     def _scan_orphaned_kind(self, kind: str, referenced: set[str]) -> list[AgentEvent]:
@@ -126,7 +211,12 @@ class K3sHealthMonitor(BaseMonitor):
             for item in self._fetch_k8s_items("virtualservice"):
                 events.extend(self._validate_vs_hosts(item, svc_names, ns))
         except Exception:
-            logger.exception("[K3sHealthMonitor] Istio VS check failed for %s", ns)
+            self._log_throttled(
+                "istio_vs_check_failed",
+                logging.ERROR,
+                "[K3sHealthMonitor] Istio VS check failed for %s",
+                ns,
+            )
         return events
 
     def _validate_vs_hosts(

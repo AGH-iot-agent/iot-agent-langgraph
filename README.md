@@ -68,3 +68,40 @@ Uwagi:
 - Gdy `run_id` nie jest podane, agent probuje wybrac ostatni run z bledem.
 - Wynik `final_summary` zawiera markdown z lista failujacych jobow, pierwszymi padnietymi krokami i sugerowanymi poprawkami.
 - W trybie `dry_run=true` agent tylko symuluje kroki i nic nie wysyla do GitHuba.
+
+## Testy integracyjne SMB (chart -> unpack -> modify -> dry-run)
+
+Testy integracyjne pokrywaja przeplyw:
+- pobranie chartu z `smb://...tar`,
+- rozpakowanie chartu,
+- modyfikacje linii w values,
+- pelny dry-run: `helm upgrade --install --dry-run --debug` + `helm template` + `kubectl apply --dry-run=server`.
+
+Wymagania:
+- dostepny binarnie: `helm`, `kubectl`, `curl`,
+- dostep do klastra Kubernetes,
+- dostep sieciowy do SMB hosta `192.168.191.208`.
+- jesli SMB share jest chroniony: ustaw `SMB_USERNAME` i `SMB_PASSWORD`
+  (opcjonalnie `SMB_DOMAIN`).
+
+Uruchomienie:
+
+```bash
+cd iot-agent-langgraph
+source .venv/bin/activate
+pip install -e ".[test]"
+
+# opcjonalnie: nadpisanie URI chartu testowego
+export TEST_SMB_CHART_URI="smb://192.168.191.208/localshare/iot-agent/docker-local/iot-agent-login-screen/iot-agent-login-screen_42eebc9966b89a5c452d1c70fa31d8ac767fc12a.tar"
+
+# opcjonalnie dla chronionego SMB
+export SMB_USERNAME="<user>"
+export SMB_PASSWORD="<password>"
+# export SMB_DOMAIN="<domain>"
+
+pytest -m integration -q
+```
+
+Uwaga:
+- te testy sa hard-requirement i nie robia `skip` przy niedostepnym SMB lub klastrze;
+  brak prerekwizytow powoduje `FAIL`, zeby wychwytywac realne regresje integracji.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from devops_agent.mcp_adapter import MCPAdapter
 
@@ -12,7 +12,7 @@ class ComponentHealth:
     name: str
     ok: bool
     message: str = ""
-    checked_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    checked_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass  
 class HealthReport:
@@ -56,12 +56,12 @@ class InfraHealthChecker:
 
     def _check_kubernetes(self) -> ComponentHealth:
         r = self._adapter.run("kubernetes", "get_pods", {"namespace": self._namespace})
-        ok = r.get("status") == "ok"
+        ok = r.get("status") in {"ok", "degraded"}
         return ComponentHealth("kubernetes", ok, r.get("message", ""))
 
     def _check_prometheus(self) -> ComponentHealth:
         r = self._adapter.run("prometheus", "query", {"query": "up"})
-        ok = r.get("status") == "ok"
+        ok = r.get("status") in {"ok", "degraded"}
         return ComponentHealth("prometheus", ok, r.get("message", ""))
 
     def _check_loki(self) -> ComponentHealth:
@@ -71,10 +71,10 @@ class InfraHealthChecker:
             "last_minutes": 1,
             "limit": 1,
         })
-        ok = r.get("status") == "ok"
+        ok = r.get("status") in {"ok", "degraded"}
         return ComponentHealth("loki", ok, r.get("message", ""))
 
     def _check_github(self) -> ComponentHealth:
         r = self._adapter.run("github", "list_org_repos", {})
-        ok = r.get("status") == "ok"
+        ok = r.get("status") in {"ok", "degraded"}
         return ComponentHealth("github", ok, r.get("message", ""))

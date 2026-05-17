@@ -7,10 +7,17 @@ from typing import Any
 import subprocess
 import json
 import logging
+import shutil
+import tempfile
+import tarfile
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 KUBECONFIG_DEFAULT = os.getenv("KUBECONFIG", os.path.expanduser("~/.kube/config"))
+_LOG_RUNNING_CMD = "Running command: %s"
+_LOG_CMD_FAILED = "Command failed with error: %s"
+_YAML_SUFFIX = ".yaml"
 
 @dataclass
 class K8sAdapter:
@@ -27,12 +34,12 @@ class K8sAdapter:
 
     def get_pods(self, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "pods", "-n", namespace, "-o", "json"]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
 
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
 
             pods_json = json.loads(result.stdout)
@@ -55,11 +62,11 @@ class K8sAdapter:
 
     def get_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
             pod_json = json.loads(result.stdout)
             logger.debug("Successfully retrieved pod %s in namespace %s", pod_name, namespace)
@@ -70,11 +77,11 @@ class K8sAdapter:
 
     def describe_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "describe", "pod", pod_name, "-n", namespace]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
             logger.debug("Successfully described pod %s in namespace %s", pod_name, namespace)
             return {"status": "ok", "description": result.stdout}
@@ -90,11 +97,11 @@ class K8sAdapter:
 
     def get_events(self, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "events", "-n", namespace, "-o", "json"]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
             events_json = json.loads(result.stdout)
             events = []
@@ -115,11 +122,11 @@ class K8sAdapter:
 
     def describe_event(self, event_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "describe", "event", event_name, "-n", namespace]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
             logger.debug("Successfully described event %s in namespace %s", event_name, namespace)
             return {"status": "ok", "description": result.stdout}
@@ -130,11 +137,11 @@ class K8sAdapter:
 
     def get_pod_events(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "events", "-n", namespace, "-o", "json"]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
 
             events_json = json.loads(result.stdout)
@@ -164,11 +171,11 @@ class K8sAdapter:
 
     def get_rollout_status(self, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "deployments", "-n", namespace, "-o", "json"]
-        logger.debug("Running command: %s", " ".join(cmd))
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
             if result.returncode != 0:
-                logger.warning("Command failed with error: %s", result.stderr)
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
             deployments_json = json.loads(result.stdout)
             deployments = []
@@ -266,7 +273,7 @@ class K8sAdapter:
         """Server-side dry-run of a manifest — validates without applying."""
         import tempfile, os as _os
         try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=_YAML_SUFFIX, delete=False) as f:
                 f.write(manifest_yaml)
                 tmp_path = f.name
             cmd = ["kubectl", "apply", "--dry-run=server", "-n", namespace, "-f", tmp_path]
@@ -280,27 +287,397 @@ class K8sAdapter:
             return {"status": "error", "message": str(exc)}
 
 
-    def helm_template_render(self, name: str, chart: str, values_override: str = "") -> dict[str, Any]:
-        """Render a Helm chart with optional values override (YAML string)."""
-        import tempfile, os as _os
-        try:
-            cmd = ["helm", "template", name, chart]
-            if values_override:
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-                    f.write(values_override)
-                    tmp_path = f.name
-                cmd += ["-f", tmp_path]
+    @staticmethod
+    def _materialize_template_entry(entry, orig_templates) -> None:
+        import shutil
+
+        if entry.is_symlink():
+            orig_entry = orig_templates / entry.name
+            real = orig_entry.resolve()
+            if real.is_file():
+                entry.unlink()
+                shutil.copy2(real, entry)
+                logger.debug("[HELM] Materialized symlink: %s -> %s", entry.name, real)
+            return
+
+        if not entry.is_file():
+            return
+
+        raw = entry.read_text(encoding="utf-8", errors="replace").strip().rstrip("\r\n")
+        if raw.startswith("../") and (raw.endswith(_YAML_SUFFIX) or raw.endswith(".tpl")):
+            resolved = (orig_templates / raw).resolve()
+            if resolved.is_file():
+                shutil.copy2(resolved, entry)
+                logger.debug("[HELM] Materialized pointer file: %s -> %s", entry.name, resolved)
             else:
-                tmp_path = None
+                logger.warning("[HELM] Pointer target not found: %s -> %s", entry.name, resolved)
+
+    @staticmethod
+    def _materialize_chart(chart: str) -> tuple[str, str | None]:
+        """Copy the chart to a temp directory and materialize all pointer files and symlinks.
+
+        The local Universal-Kubernetes-Helm-Charts checkout contains template files whose
+        content is only a relative path like ``../../../templates/service.yaml`` (pointer files)
+        or filesystem symlinks.  ``helm template`` cannot process these — it sees them as
+        literal YAML and either fails or renders nothing.
+
+        This mirrors the "Materialize chart helper symlinks" step in
+        ``common-pipeline/.github/workflows/helm.yml`` so the local render matches CI exactly.
+        """
+        import shutil, tempfile as _tf
+        from pathlib import Path as _Path
+
+        orig_templates = _Path(chart) / "templates"
+        if not orig_templates.is_dir():
+            return chart, None
+
+        tmp_dir = _tf.mkdtemp(prefix="helm-chart-")
+        tmp_chart = os.path.join(tmp_dir, "chart")
+        shutil.copytree(chart, tmp_chart, symlinks=True)
+
+        templates_dir = _Path(tmp_chart) / "templates"
+        if not templates_dir.is_dir():
+            return tmp_chart, tmp_dir
+
+        for entry in templates_dir.iterdir():
+            K8sAdapter._materialize_template_entry(entry, orig_templates)
+
+        return tmp_chart, tmp_dir
+
+    @staticmethod
+    def _is_smb_uri(path: str) -> bool:
+        return str(path).lower().startswith("smb://")
+
+    @staticmethod
+    def _download_smb_chart(uri: str) -> tuple[str, str]:
+        tmp_dir = tempfile.mkdtemp(prefix="helm-chart-smb-")
+        parsed = urlparse(uri)
+
+        # smb://server/share/path/to/file.tar
+        server = parsed.hostname
+        share_and_path = parsed.path.lstrip("/")
+
+        parts = share_and_path.split("/")
+        share = parts[0]
+        remote_path = "/".join(parts[1:]) if len(parts) > 1 else ""
+
+        filename = os.path.basename(parsed.path) or "chart.tar"
+        local_path = os.path.join(tmp_dir, filename)
+
+        smb_username = os.environ.get("SMB_USERNAME", "")
+        smb_password = os.environ.get("SMB_PASSWORD", "")
+        smb_domain = os.environ.get("SMB_DOMAIN", "")
+
+        user = smb_username
+        if smb_domain and "\\" not in smb_username:
+            user = f"{smb_domain}\\{smb_username}"
+
+        cmd = [
+            "smbclient",
+            f"//{server}/{share}",
+            "-c",
+            f"get {remote_path} {local_path}" if remote_path else f"get {filename} {local_path}",
+        ]
+
+        if user and smb_password:
+            cmd += ["-U", f"{user}%{smb_password}"]
+        else:
+            cmd += ["-N"]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise RuntimeError(
+                f"failed to fetch SMB chart source '{uri}': {result.stderr or result.stdout}"
+            )
+
+        return local_path, tmp_dir
+
+    @staticmethod
+    def _find_chart_dir(root_dir: str) -> str:
+        for current_root, _, files in os.walk(root_dir):
+            if "Chart.yaml" in files:
+                return current_root
+        raise RuntimeError(f"no Helm chart directory (Chart.yaml) found under extracted archive: {root_dir}")
+
+    @staticmethod
+    def _extract_chart_archive(archive_path: str) -> tuple[str, str]:
+        extract_dir = tempfile.mkdtemp(prefix="helm-chart-extract-")
+        try:
+            with tarfile.open(archive_path, "r:*") as tf:
+                tf.extractall(path=extract_dir)
+            chart_dir = K8sAdapter._find_chart_dir(extract_dir)
+            return chart_dir, extract_dir
+        except Exception:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            raise
+
+    def _resolve_chart_source(self, chart: str) -> tuple[str, list[str]]:
+        """Resolve chart source into helm-usable path and cleanup dirs.
+
+        Supported sources:
+        - local chart directory
+        - local chart archive (.tgz/.tar/.tar.gz)
+        - smb:// URI to an archive (wnloaded via curl first)
+        """
+        source = (chart or "").strip()
+        cleanup_dirs: list[str] = []
+
+        if self._is_smb_uri(source):
+            downloaded, tmp_dir = self._download_smb_chart(source)
+            cleanup_dirs.append(tmp_dir)
+            source = downloaded
+
+        if os.path.isdir(source):
+            materialized_chart, materialize_tmp = self._materialize_chart(source)
+            if materialize_tmp:
+                cleanup_dirs.append(materialize_tmp)
+            return materialized_chart, cleanup_dirs
+
+        if os.path.isfile(source):
+            lower = source.lower()
+            if lower.endswith(".tar") or lower.endswith(".tar.gz") or lower.endswith(".tgz"):
+                chart_dir, extract_tmp = self._extract_chart_archive(source)
+                cleanup_dirs.append(extract_tmp)
+                materialized_chart, materialize_tmp = self._materialize_chart(chart_dir)
+                if materialize_tmp:
+                    cleanup_dirs.append(materialize_tmp)
+                return materialized_chart, cleanup_dirs
+
+        raise RuntimeError(f"unsupported or missing Helm chart source: {chart}")
+
+    def helm_template_render(self, name: str, chart: str, values_override: str = "") -> dict[str, Any]:
+        """Render a Helm chart with optional values override (YAML string).
+
+        Pointer files and symlinks in the chart templates directory are materialized
+        before rendering so the result matches what the CI pipeline produces.
+        """
+        import os as _os, shutil as _shutil
+        cleanup_dirs: list[str] = []
+        tmp_values: str | None = None
+        try:
+            resolved_chart, cleanup_dirs = self._resolve_chart_source(chart)
+
+            cmd = ["helm", "template", name, resolved_chart]
+            if values_override:
+                with tempfile.NamedTemporaryFile(mode="w", prefix="values_fix_01-", suffix=_YAML_SUFFIX, delete=False) as f:
+                    f.write(values_override)
+                    tmp_values = f.name
+                cmd += ["-f", tmp_values]
+
             result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
-            if tmp_path:
-                _os.unlink(tmp_path)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok", "manifests": result.stdout}
         except Exception as exc:
             logger.exception("Exception in helm_template_render")
             return {"status": "error", "message": str(exc)}
+        finally:
+            if tmp_values and os.path.exists(tmp_values):
+                _os.unlink(tmp_values)
+            for cleanup_dir in cleanup_dirs:
+                if cleanup_dir and os.path.isdir(cleanup_dir):
+                    _shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+    def _helm_upgrade_dry_run(
+        self,
+        *,
+        release_name: str,
+        namespace: str,
+        chart: str,
+        values_override: str,
+        image_repository: str,
+        image_tag: str,
+    ) -> dict[str, Any]:
+        import os as _os, shutil as _shutil
+
+        cleanup_dirs: list[str] = []
+        tmp_values: str | None = None
+        try:
+            resolved_chart, cleanup_dirs = self._resolve_chart_source(chart)
+            with tempfile.NamedTemporaryFile(mode="w", prefix="values_fix_01-", suffix=_YAML_SUFFIX, delete=False) as f:
+                f.write(values_override or "{}\n")
+                tmp_values = f.name
+
+            cmd = [
+                "helm",
+                "upgrade",
+                "--install",
+                release_name,
+                resolved_chart,
+                "--namespace",
+                namespace,
+                "--create-namespace",
+                "-f",
+                tmp_values,
+                "--set",
+                f"image.repository={image_repository}",
+                "--set",
+                f"image.tag={image_tag}",
+                "--dry-run",
+                "--debug",
+                "--wait",
+                "--timeout",
+                "5m",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                return {
+                    "status": "error",
+                    "message": result.stderr or result.stdout or "helm upgrade --dry-run failed",
+                }
+
+            return {
+                "status": "ok",
+                "output": result.stdout,
+            }
+        except Exception as exc:
+            logger.exception("Exception in _helm_upgrade_dry_run")
+            return {"status": "error", "message": str(exc)}
+        finally:
+            if tmp_values and _os.path.exists(tmp_values):
+                _os.unlink(tmp_values)
+            for cleanup_dir in cleanup_dirs:
+                if cleanup_dir and _os.path.isdir(cleanup_dir):
+                    _shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+    def helm_validate_deployability(
+        self,
+        release_name: str,
+        service_name: str,
+        namespace: str,
+        chart: str,
+        values_override: str = "",
+        image_repository: str = "ghcr.io/placeholder/placeholder",
+        image_tag: str = "ci",
+    ) -> dict[str, Any]:
+        """Validate Helm deployability in the target namespace without applying resources.
+
+        Mirrors CI Helm inputs: release/service/namespace/chart/values/image fields.
+        The chart is rendered with Helm and validated against the cluster API using
+        ``kubectl apply --dry-run=server``.
+        """
+        preflight_error = self._validate_helm_environment(chart=chart, namespace=namespace)
+        if preflight_error is not None:
+            return preflight_error
+
+        upgrade_dry_run = self._helm_upgrade_dry_run(
+            release_name=release_name,
+            namespace=namespace,
+            chart=chart,
+            values_override=values_override,
+            image_repository=image_repository,
+            image_tag=image_tag,
+        )
+
+        if upgrade_dry_run.get("status") != "ok":
+            return {
+                "status": "error",
+                "message": f"helm upgrade --install --dry-run failed: {upgrade_dry_run.get('message', '')}",
+            }
+
+        render_result = self.helm_template_render(
+            name=release_name,
+            chart=chart,
+            values_override=values_override,
+        )
+        if render_result.get("status") != "ok":
+            return {
+                "status": "error",
+                "message": f"helm template failed: {render_result.get('message', '')}",
+            }
+
+        manifests = render_result.get("manifests", "")
+        if not manifests:
+            return {
+                "status": "error",
+                "message": "helm template returned empty manifests",
+            }
+
+        apply_result = self.apply_manifest_dryrun(manifests, namespace=namespace)
+        if apply_result.get("status") != "ok":
+            return {
+                "status": "error",
+                "message": f"kubectl apply --dry-run failed: {apply_result.get('message', '')}",
+            }
+
+        return {
+            "status": "ok",
+            "release_name": release_name,
+            "service_name": service_name,
+            "namespace": namespace,
+            "chart": chart,
+            "image_repository": image_repository,
+            "image_tag": image_tag,
+            "manifests": manifests,
+            "helm_upgrade_dry_run_output": upgrade_dry_run.get("output", ""),
+            "output": apply_result.get("output", ""),
+        }
+
+    @staticmethod
+    def _probe_cluster_access() -> str | None:
+        last_error: str = "cluster API unreachable"
+        kubectl_probe_cmds = [
+            ["kubectl", "version", "--short", "--request-timeout=8s"],
+            ["kubectl", "version", "--request-timeout=8s"],
+        ]
+
+        for cmd in kubectl_probe_cmds:
+            try:
+                cluster_probe = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    env=os.environ,
+                    timeout=12,
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            if cluster_probe.returncode == 0:
+                return None
+
+            stderr = (cluster_probe.stderr or "").strip()
+            stdout = (cluster_probe.stdout or "").strip()
+            detail = stderr or stdout or "cluster API unreachable"
+            last_error = detail
+
+            # Older kubectl builds do not support --short, try fallback command.
+            if "unknown flag: --short" in detail and "--short" in cmd:
+                continue
+
+            break
+
+        return last_error
+
+    def _validate_helm_environment(self, *, chart: str, namespace: str) -> dict[str, Any] | None:
+        missing: list[str] = []
+        if not shutil.which("helm"):
+            missing.append("helm binary not found in PATH")
+        if not shutil.which("kubectl"):
+            missing.append("kubectl binary not found in PATH")
+        if self._is_smb_uri(chart) and not shutil.which("curl"):
+            missing.append("curl binary not found in PATH (required for smb:// chart source)")
+        if missing:
+            return {"status": "error", "message": "; ".join(missing)}
+
+        if not chart:
+            return {"status": "error", "message": "chart source is empty"}
+        if not self._is_smb_uri(chart) and not os.path.exists(chart):
+            return {"status": "error", "message": f"chart path does not exist: {chart}"}
+
+        cluster_error = self._probe_cluster_access()
+        if cluster_error:
+            return {
+                "status": "error",
+                "message": f"cluster preflight failed for namespace {namespace}: {cluster_error}",
+            }
+
+        return None
 
 
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
@@ -331,4 +708,14 @@ class K8sAdapter:
             return self.apply_manifest_dryrun(args["manifest_yaml"], args.get("namespace", "iotag-sbx"))
         if action == "helm_template_render":
             return self.helm_template_render(args["name"], args["chart"], args.get("values_override", ""))
+        if action == "helm_validate_deployability":
+            return self.helm_validate_deployability(
+                release_name=args["release_name"],
+                service_name=args["service_name"],
+                namespace=args["namespace"],
+                chart=args["chart"],
+                values_override=args.get("values_override", ""),
+                image_repository=args.get("image_repository", "ghcr.io/placeholder/placeholder"),
+                image_tag=args.get("image_tag", "ci"),
+            )
         return {"status": "error", "message": f"Unknown action: {action}"}

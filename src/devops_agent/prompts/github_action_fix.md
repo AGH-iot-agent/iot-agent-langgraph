@@ -18,6 +18,17 @@ Always fetch job logs via `gh_get_job_logs`. Look for:
 
 ## Helm / Kubernetes Deploy Failures
 
+### Manifest/YAML parser failures (STRICT PATH POLICY)
+If the error indicates Helm values/manifest parse problem, search and fix ONLY in:
+- `Helm/values-sbx.yaml` (primary)
+- `Helm/values-dev.yaml` (only when explicitly relevant)
+
+Ignore unrelated or guessed paths from logs unless already fetched successfully from the repo.
+Examples to ignore by default:
+- `etc/rancher/k3s/k3s.yaml`
+- `deployment/templates/deployment.yaml`
+- `Node.js`
+
 ### Image pull error
 ```
 Failed to pull image: not found / 403 Forbidden
@@ -102,6 +113,82 @@ with:
 ### Job dependency not set-env
 If `needs: set-env` job has a conditional `if:` that skips it, downstream jobs using `needs.set-env.outputs.*` will get empty strings.
 Ensure the `if:` condition covers all event combinations that should trigger the pipeline.
+
+## PR Build Failure Fix Flow (`github_pr_build_failure`)
+
+When a build fails on a PR branch (not main), the fix goes BACK to that PR branch:
+
+1. Fetch job logs: `get_job_logs(repo, run_id)`
+2. Fetch failing files using the PR branch ref (NOT main):
+   ```
+   get_file_content(repo, path, ref=<PR_branch>)
+   ```
+3. Identify root cause and produce `original_snippet` / `fixed_snippet`
+4. Validate: Helm template render → dry-run on `iotag-sbx`
+5. Create fix branch `fix/PR-{pr_number}-{timestamp}` from the PR branch HEAD
+6. Open PR: base = PR branch (e.g. `test/my-feature`), NOT main
+
+This ensures the fix lands on the in-review branch and triggers a new build on it.
+
+**NEVER open the fix PR to main for `github_pr_build_failure` events.**
+
+## CI Failure Fix Flow (`github_ci_failure`)
+
+For CI failures on non-PR branches (no linked PR):
+1. Fetch logs and failing files from the failing branch ref
+2. Identify root cause, produce fix proposal
+3. Validate on `iotag-sbx` (Helm dry-run)
+4. Create branch `fix/agent-ci-{branch}-{timestamp}` from HEAD of failing branch
+5. Open PR: base = `main`
+
+## Scalability Fix Flow (`request_rate_spike`, `high_cpu_usage`, `high_http_latency`)
+
+When traffic or resource metrics trigger the agent:
+
+### Step 1 — Confirm the spike
+```
+prometheus_query: sum(rate(http_server_requests_seconds_count{namespace="..."}[1m])) by (pod)
+```
+If rate < threshold: do nothing (transient spike, already resolved).
+
+### Step 2 — Check current capacity
+```
+k8s_get_pods(namespace)
+k8s_get_rollout_status(namespace)
+```
+Note current `replicaCount` and whether an HPA exists.
+
+### Step 3 — Diagnose root cause
+```
+loki_query_range(namespace, last_minutes=5)  # look for OOM / errors during spike
+```
+
+### Step 4 — Propose fix (choose ONE based on evidence)
+
+**Option A — Increase replicaCount in values file** (if no HPA, spike is sustained):
+```yaml
+# values-dev.yaml snippet:
+replicaCount: 3   # was: 1
+```
+
+**Option B — Add/update HPA configuration** (if spike is recurring or bursty):
+```yaml
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+```
+
+**Option C — Istio rate limiting** (if spike is external traffic / DDoS pattern):
+```yaml
+# EnvoyFilter or values key for rate limiting — document the proposed manifest change
+```
+
+### Step 5 — Validate and open PR
+- Render Helm template with proposed values change
+- Server-side dry-run on `iotag-sbx`
+- Only open PR if both pass
 
 ## Validation Before PR
 

@@ -43,9 +43,16 @@ class GitHubPRMonitor(BaseMonitor):
                     if found_devops_comment:
                         commented_in_repo.add(pr_number)
                         continue
-                    labels = {str(lbl).lower() for lbl in (pr.get("labels") or [])}
+                    raw_labels = pr.get("labels") or []
+                    labels_set = {
+                        lbl.get("name", "").lower() if isinstance(lbl, dict) else str(lbl).lower()
+                        for lbl in raw_labels
+                    }
+                    if "iot-devops-agent" not in labels_set:
+                        continue
+
                     title_lower = pr.get("title", "").lower()
-                    is_infra = bool(labels & PR_LABELS) or any(kw in title_lower for kw in INFRA_TITLE_KEYWORDS)
+                    is_infra = bool(labels_set & PR_LABELS) or any(kw in title_lower for kw in INFRA_TITLE_KEYWORDS)
                     events.append(AgentEvent(
                         kind="github_pr",
                         title=f"{repo_full_name}#{pr_number}: {pr.get('title')}",
@@ -55,6 +62,7 @@ class GitHubPRMonitor(BaseMonitor):
                             "is_infra": is_infra,
                             "repo_full_name": repo_full_name,
                             "pr_number": pr_number,
+                            "branch": (pr.get("head") or {}).get("ref", ""),
                         }
                     ))
                     commented_in_repo.add(pr_number)

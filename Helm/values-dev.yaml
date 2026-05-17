@@ -190,13 +190,7 @@ globalEnvs:
 globalEnvsSecondary: []
 
 # A tertiary source for env variables (eg: used for a specific env (eg: dev, or staging))
-extraEnvs:
-  - name: LOKI_URL
-    value: "http://loki.iotag-dev.svc.cluster.local:3100"
-  - name: PROMETHEUS_URL
-    value: "http://kube-prometheus-stack-prometheus.iotag-dev.svc.cluster.local:9090"
-  - name: IOTAG_WATCHDOG_AUTOSTART
-    value: "true"
+extraEnvs: []
 
 # stdin and tty status
 tty: false

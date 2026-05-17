@@ -9,14 +9,24 @@ FORBIDDEN_ACTIONS = {
     "cluster_admin_apply",
 }
 
+WRITE_ACTIONS = {
+    "restart_deployment",
+}
+
 def critic_node(state: AgentState) -> AgentState:
     notes: list[str] = []
     plan = state.get("plan", [])
+    state_dry_run = state.get("dry_run", True)
 
     for step in plan:
         action = step.get("action", "")
+        args = step.get("args", {})
         if action in FORBIDDEN_ACTIONS:
             notes.append(f"Forbidden action detected: {action}")
+
+        # Safety net: block explicit write operations in dry_run mode.
+        if state_dry_run and action in WRITE_ACTIONS and args.get("dry_run") is False:
+            notes.append(f"Dry-run policy violation: {action} requested with dry_run=False")
 
 
     passed = len(notes) == 0

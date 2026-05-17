@@ -46,6 +46,15 @@ class GitHubCIFailureMonitor(BaseMonitor):
                     dry_run=False,
                 )
                 runs = runs_resp.get("runs", [])
+                in_progress_resp = self._adapter.run(
+                    "github", "get_workflow_runs",
+                    {"repo": repo_full_name, "per_page": 50, "status": "in_progress"},
+                    dry_run=False,
+                )
+                in_progress_shas: set[str] = {
+                    r.get("head_sha") for r in in_progress_resp.get("runs", [])
+                    if r.get("head_sha")
+                }
             except Exception:
                 logger.exception("[CIFailureMonitor] Failed to get runs for %s", repo_full_name)
                 continue
@@ -76,6 +85,30 @@ class GitHubCIFailureMonitor(BaseMonitor):
                 if branch in SKIP_BRANCHES:
                     continue
 
+                head_sha: str = run.get("head_sha", "")
+                if head_sha and head_sha in in_progress_shas:
+                    logger.debug(
+                        "[CIFailureMonitor] Skipping run#%d — commit %s has run(s) still in-progress",
+                        run_id, head_sha[:8],
+                    )
+                    continue
+
+                if run.get("pull_requests"):
+                    logger.debug(
+                        "[CIFailureMonitor] Skipping run#%d — linked to PR(s), handled by PRBuildMonitor",
+                        run_id,
+                    )
+                    alerted_in_repo.add(run_id)
+                    continue
+
+                if not self._branch_has_open_pr(repo_full_name, branch):
+                    logger.info(
+                        "[CIFailureMonitor] Skipping run#%d on %s/%s — no open PR for branch",
+                        run_id, repo_full_name, branch,
+                    )
+                    alerted_in_repo.add(run_id)
+                    continue
+
                 if self._agent_already_commented(repo_full_name, branch):
                     alerted_in_repo.add(run_id)
                     continue
@@ -95,6 +128,22 @@ class GitHubCIFailureMonitor(BaseMonitor):
                 ))
 
         return events
+
+    def _branch_has_open_pr(self, repo: str, branch: str) -> bool:
+        """Return True if there is at least one open PR whose head branch matches ``branch``."""
+        try:
+            prs_resp = self._adapter.run(
+                "github", "list_pull_requests", {"repo": repo, "state": "open"}, dry_run=False
+            )
+            return any(
+                pr.get("head", {}).get("ref", "") == branch
+                for pr in prs_resp.get("pull_requests", [])
+            )
+        except Exception:
+            logger.exception(
+                "[CIFailureMonitor] Failed checking open PRs for %s branch %s", repo, branch
+            )
+        return False
 
     def _agent_already_commented(self, repo: str, branch: str) -> bool:
         """Check if any open PR for this branch already has an agent comment."""

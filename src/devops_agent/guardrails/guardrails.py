@@ -1,49 +1,31 @@
-from guardrails import Guard, OnFailAction
-from guardrails.hub import DetectJailbreak, RestrictToTopic, LlamaGuard7B
-from openai import OpenAI
+"""
+guardrails.py – thin integration shim
+======================================
+Previously this file imported the third-party ``guardrails`` library which is
+not a core dependency and is not guaranteed to be installed.
+
+All threat-detection logic has been consolidated into
+``devops_agent.security.SecurityLayer``.  This module now re-exports the
+singleton and a convenience ``validate_llm_response`` helper so any existing
+call-sites continue to work.
+"""
+from __future__ import annotations
+
+from devops_agent.security import security_layer, SecurityScanResult  # noqa: F401
 
 
-def make_llm_request(prompt: str) -> str:
-    client = OpenAI(api_key="EMPTY", base_url="http://localhost:8000/v1")
+def validate_llm_response(text: str) -> str:
+    """
+    Scan an LLM response for secrets and PII, returning the sanitised text.
+    Raises ``ValueError`` if a critical violation is found.
 
-    messages = [
-        {"role": "developer", "content": "You are a helpful assistant."},
-        {"role": "user", "content": prompt},
-    ]
-
-    chat_response = client.chat.completions.create(
-        model="",
-        messages=messages,
-        max_completion_tokens=1000,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-    content = chat_response.choices[0].message.content.strip()
-
-    jailbreak_guardian = Guard().use(
-        DetectJailbreak,
-        on_fail=OnFailAction.EXCEPTION,
-    )
-
-    topic_guard = Guard().use(
-        RestrictToTopic,
-        valid_topics=[
-            "fishing",
-            "fish",
-            "aquatic life",
-            "fishing equipment",
-            "fishing techniques",
-        ],
-        invalid_topics=["politics", "violence", "drugs", "hacking", "weapons"],
-        disable_classifier=True,
-        disable_llm=False,
-        on_fail="exception",
-    )
-
-    guard = Guard().use(LlamaGuard7B, on_fail=OnFailAction.EXCEPTION)
-    guards = [jailbreak_guardian, topic_guard, guard]
-    try:
-        for guard in guards:
-            guard.validate(content)
-        return content
-    except Exception as e:
-        return f"Sorry, I cannot help you with that, reason: {e}"
+    This replaces the previous guardrails-library-based implementation.
+    """
+    result: SecurityScanResult = security_layer.scan_output(text)
+    if result.has_severity("critical"):
+        critical = [v for v in result.violations if v.severity == "critical"]
+        raise ValueError(
+            f"Critical security violation in LLM output: {critical[0].description}"
+        )
+    # Return sanitised text even for lower-severity violations
+    return result.sanitized_text

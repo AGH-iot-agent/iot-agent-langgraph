@@ -1,0 +1,56 @@
+[
+  {
+    "step": 1,
+    "tool": "github",
+    "action": "get_job_logs",
+    "args": {
+      "repo": "AGH-iot-agent/iot-agent-login-screen",
+      "run_id": 25969747491,
+      "job_id": 0
+    },
+    "result": {
+      "status": "ok",
+      "logs": "Run helm/chart-testing-action@v2.6.0\nhelm upgrade --install iot-agent-login-screen ./Helm --namespace iotag-sbx --values Helm/values-sbx.yaml --atomic --timeout 5m\nError: UPGRADE FAILED: failed to create resource: error validating data: [ValidationError(Deployment.spec.template.spec.containers[0].livenessProbe): did not find expected key in Helm/values-sbx.yaml line 251 column 1]\nhelm upgrade --install failed with exit code 1\n"
+    }
+  },
+  {
+    "step": 2,
+    "tool": "github",
+    "action": "get_file_content",
+    "args": {
+      "repo": "AGH-iot-agent/iot-agent-login-screen",
+      "path": "Helm/values-sbx.yaml",
+      "ref": "test/scenario_02_integration"
+    },
+    "result": {
+      "status": "ok",
+      "content": "# Default values for a \"deployment\"\n\n# REQUIRED for you to set a value here, name of your service\nname: \"\"\n\nreplicaCount: 1\nminReadySeconds: false\nrevisionHistoryLimit: 10\npriorityClassName: \"\"\nshareProcessNamespace: false\n\nimage:\n  tag: \"\"\n  repository: \"\"\n  command: []\n  args: []\n  imagePullPolicy: IfNotPresent\n  imagePullSecrets: []\n\nsecurity:\n  runAsNonRoot: false\n  runAsUser: 1000\n  fsGroup: 1000\n\nistio:\n  gateway:\n    createIfMissing: false\n    namespace: istio-system\n    name: istio-ingressgateway\n    selector:\n      istio: ingressgateway\n    port: 80\n    protocol: HTTP\n  virtualService:\n    enabled: true\n    name: \"iot-agent-login-screen\"\n    annotations: {}\n    hosts:\n      - iot-agent-login-screen-sbx.iotag-sbx.com\n    gateways:\n      - istio-system/istio-ingressgateway\n    http:\n      - match:\n          - uri:\n              prefix: /\n        route:\n          - destination:\n              host: iot-agent-login-screen.iotag-sbx.svc.cluster.local\n              port:\n                number: 80\n\ningress:\n  enabled: false\n  name: \"\"\n  nginx_affinity: true\n  nginx_class: \"traefik\"\n  ingressClassName: \"traefik\"\n  pathType: ImplementationSpecific\n  annotations: {}\n  hosts:\n    - host: iot-agent-login-screen-sbx.iotag-sbx\n      paths:\n        - /\n  tls: []\n\nservice:\n  enabled: true\n  annotations: {}\n  type: ClusterIP\n  port: 80\n  targetPort: 80\n  name: default-service\n  additionalPorts: []\n\nadditionalPorts: []\npodAnnotations: {}\nusingNewRecommendedLabels: false\nlabels: {}\nlabelsEnableDefault: true\nlifecycle: {}\n\nglobalEnvs:\n  - name: GATEWAY_ROUTES_0_PATH\n    value: \"/devices\"\n  - name: GATEWAY_ROUTES_0_SERVICE\n    value: \"iot-agent-device-api\"\n\nextraEnvs: []\ntty: false\nenvFrom: []\nusingMemoryKibiBytesEnvs: false\n\n# livenessProbes are used to determine when to restart a container\nlivenessProbe:\nenabled: true\n# For the liveness probe we'll wait a full 2 minutes\ninitialDelaySeconds: 120\nperiodSeconds: 10\ntimeoutSeconds: 9\nsuccessThreshold: 1\nfailureThreshold: 3\n\nprobeType: httpGet\nscheme: HTTP\npath: /\nport: default-service\ncommand:\n  - ls -la /\n\nreadinessProbe:\n  enabled: true\n  initialDelaySeconds: 5\n  periodSeconds: 5\n  timeoutSeconds: 4\n  successThreshold: 2\n  failureThreshold: 2\n  probeType: httpGet\n  scheme: HTTP\n  path: /\n  port: default-service\n  command:\n    - ls -la /\n\nglobal:\n  namespace: iotag-sbx\n"
+    }
+  },
+  {
+    "step": 3,
+    "tool": "github",
+    "action": "get_file_content",
+    "args": {
+      "repo": "AGH-iot-agent/iot-agent-login-screen",
+      "path": ".github/workflows/ci.yml",
+      "ref": "test/scenario_02_integration"
+    },
+    "result": {
+      "status": "ok",
+      "content": "name: CI\non:\n  push:\n    branches: ['**']\n  pull_request:\n    branches: ['main']\njobs:\n  helm-lint-and-deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v3\n      - name: Helm upgrade sbx\n        run: |\n          helm upgrade --install iot-agent-login-screen ./Helm \\\n            --namespace iotag-sbx \\\n            --values Helm/values-sbx.yaml \\\n            --atomic --timeout 5m\n"
+    }
+  },
+  {
+    "step": 4,
+    "tool": "kubernetes",
+    "action": "get_pods",
+    "args": {
+      "namespace": "iotag-sbx"
+    },
+    "result": {
+      "status": "ok",
+      "pods": []
+    }
+  }
+]

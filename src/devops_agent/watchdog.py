@@ -48,6 +48,7 @@ class StatusReport(TypedDict):
     running:    bool
     last_tick:  int | None
     last_error: str | None
+    consecutive_failures: int
     config:     dict[str, Any] | None
 
 _DISPATCH_SEMAPHORE = threading.Semaphore(3)
@@ -64,7 +65,7 @@ class AgentWatchdog:
         self._alerts: list[Alert] = []
         self._status: StatusReport = {
             "running": False, "last_tick": None,
-            "last_error": None, "config": None,
+            "last_error": None, "consecutive_failures": 0, "config": None,
         }
 
     def start(self, config: WatchdogConfig) -> WatchdogResponse:
@@ -88,6 +89,7 @@ class AgentWatchdog:
                 running    = True, 
                 last_tick  = None, 
                 last_error = None,
+                consecutive_failures = 0,
                 config     = initial_config,
             )
             
@@ -146,6 +148,10 @@ class AgentWatchdog:
                 with self._lock:
                     self._status["last_tick"]  = int(time.time())
                     self._status["last_error"] = tick_error
+                    if tick_error:
+                        self._status["consecutive_failures"] = int(self._status.get("consecutive_failures", 0)) + 1
+                    else:
+                        self._status["consecutive_failures"] = 0
             self._stop_event.wait(timeout=max(5, config.interval_seconds))
 
     def _tick(self) -> None:
@@ -205,12 +211,27 @@ class AgentWatchdog:
                 pr_url = result.get("pr_url")
                 final = result.get("final_summary", "")
                 if pr_url:
-                    logger.info("[WATCHDOG] Fix PR created for %s: %s", event.kind, pr_url)
+                    target = result.get("fix_target_branch", "main")
+                    pr_num = result.get("fix_pr_number")
+                    if event.kind == "github_pr_build_failure" and pr_num:
+                        logger.info(
+                            "[WATCHDOG] Fix PR created for PR#%d → branch '%s': %s",
+                            pr_num, target, pr_url,
+                        )
+                    else:
+                        logger.info("[WATCHDOG] Fix PR created for %s: %s", event.kind, pr_url)
                 else:
-                    logger.warning(
-                        "[WATCHDOG] No PR created for %s (%s): %s",
-                        event.kind, event.title, final[:300],
-                    )
+                    validation = result.get("validation_result") or {}
+                    if not validation.get("passed"):
+                        logger.info(
+                            "[WATCHDOG] No PR for %s (%s) — blocked by failed validation",
+                            event.kind, event.title,
+                        )
+                    else:
+                        logger.warning(
+                            "[WATCHDOG] No PR created for %s (%s): %s",
+                            event.kind, event.title, final[:300],
+                        )
 
             self._append_alert(event.kind, event.title, event.context)
 

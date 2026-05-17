@@ -7,3 +7,7 @@ __pycache__/
 
 .devops_agent.env
 iot_Agent_langgraph.egg-info/
+
+./logs/*
+.vscode/
+logs/

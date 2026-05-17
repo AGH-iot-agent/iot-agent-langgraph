@@ -307,8 +307,40 @@ class GHAdapter:
                 return {"status": "error", "message": jobs_result.stderr}
             jobs_json = json.loads(jobs_result.stdout)
             jobs = jobs_json.get("jobs", [])
-            target = next((j for j in jobs if j.get("conclusion") == "failure"), jobs[job_id] if jobs else None)
+            logger.info(
+                "[GHAdapter] jobs fetched repo=%s run=%d count=%d requested_job_id=%d",
+                repo,
+                run_id,
+                len(jobs),
+                job_id,
+            )
+            if jobs:
+                logger.debug(
+                    "[GHAdapter] job summary: %s",
+                    [
+                        {
+                            "id": job.get("id"),
+                            "name": job.get("name"),
+                            "conclusion": job.get("conclusion"),
+                        }
+                        for job in jobs[:5]
+                    ],
+                )
+            fallback = None
+            if 0 <= job_id < len(jobs):
+                fallback = jobs[job_id]
+            elif jobs:
+                fallback = jobs[0]
+            target = next((j for j in jobs if j.get("conclusion") == "failure"), fallback)
+            if target and target is fallback:
+                logger.info(
+                    "[GHAdapter] using fallback job id=%s name=%s conclusion=%s",
+                    target.get("id"),
+                    target.get("name"),
+                    target.get("conclusion"),
+                )
             if not target:
+                logger.warning("[GHAdapter] no jobs found for repo=%s run=%d", repo, run_id)
                 return {"status": "ok", "logs": "", "message": "No jobs found"}
             actual_job_id = target["id"]
             logs_cmd = ["gh", "api", f"/repos/{repo}/actions/jobs/{actual_job_id}/logs"]
@@ -342,7 +374,6 @@ class GHAdapter:
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             data = json.loads(result.stdout)
-            # API may return a list (when prefix matches multiple refs) or single object
             if isinstance(data, list):
                 data = data[0]
             sha = data.get("object", {}).get("sha", "")
@@ -387,11 +418,9 @@ class GHAdapter:
         if sha:
             payload["sha"] = sha
 
-        # Fetch current file SHA if not provided (needed for updates)
         if not sha:
             check = self.get_file_content(repo, path, branch)
             if check.get("status") == "ok":
-                # File exists — get its blob sha via the raw API
                 check_cmd = ["gh", "api", f"/repos/{repo}/contents/{path}?ref={branch}"]
                 try:
                     r = subprocess.run(check_cmd, capture_output=True, text=True, env=os.environ)

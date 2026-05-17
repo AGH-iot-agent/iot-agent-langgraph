@@ -48,10 +48,19 @@ class GitHubPRBuildMonitor(BaseMonitor):
             try:
                 runs_resp = self._adapter.run(
                     "github", "get_workflow_runs",
-                    {"repo": repo_full_name, "per_page": 20},
+                    {"repo": repo_full_name, "per_page": 50},
                     dry_run=False,
                 )
                 runs = runs_resp.get("runs", [])
+                in_progress_resp = self._adapter.run(
+                    "github", "get_workflow_runs",
+                    {"repo": repo_full_name, "per_page": 50, "status": "in_progress"},
+                    dry_run=False,
+                )
+                in_progress_shas: set[str] = {
+                    r.get("head_sha") for r in in_progress_resp.get("runs", [])
+                    if r.get("head_sha")
+                }
             except Exception:
                 logger.exception("[PRBuildMonitor] Failed to get runs for %s", repo_full_name)
                 continue
@@ -69,22 +78,24 @@ class GitHubPRBuildMonitor(BaseMonitor):
                     continue
 
                 head_sha: str = run.get("head_sha", "")
-                if head_sha:
-                    pending = [
-                        r for r in runs
-                        if r.get("head_sha") == head_sha
-                        and r.get("id") != run_id
-                        and r.get("status") not in ("completed",)
-                    ]
-                    if pending:
-                        logger.debug(
-                            "[PRBuildMonitor] Skipping run#%d — %d run(s) for commit %s still pending",
-                            run_id, len(pending), head_sha[:8],
-                        )
-                        continue 
+                if head_sha and head_sha in in_progress_shas:
+                    logger.debug(
+                        "[PRBuildMonitor] Skipping run#%d — commit %s has run(s) still in-progress",
+                        run_id, head_sha[:8],
+                    )
+                    continue
 
                 pr_number: int = linked_prs[0].get("number", 0)
                 branch: str = run.get("head_branch", "")
+
+                pr_state: str = linked_prs[0].get("state", "") or ""
+                if pr_state and pr_state != "open":
+                    logger.debug(
+                        "[PRBuildMonitor] Skipping run#%d — PR#%d state is '%s'",
+                        run_id, pr_number, pr_state,
+                    )
+                    alerted_in_repo.add(run_id)
+                    continue
 
                 pr_base_branch: str = linked_prs[0].get("base", {}).get("ref", "") or ""
                 if pr_base_branch and pr_base_branch not in ("main", "master", "develop"):
@@ -95,7 +106,7 @@ class GitHubPRBuildMonitor(BaseMonitor):
                     alerted_in_repo.add(run_id)
                     continue
 
-                if branch in SKIP_BRANCHES:
+                if branch in SKIP_BRANCHES or branch.startswith("fix/agent-ci-") or branch.startswith("fix/PR-"):
                     alerted_in_repo.add(run_id)
                     continue
 

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+import os
 from typing import Any
 from pathlib import Path
 
 from devops_agent.graph_tools import ALL_TOOLS
+from devops_agent.llm_utils import invoke_with_retry as _invoke_with_retry
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -18,90 +19,77 @@ from devops_agent.prompts import _build_system_prompt
 
 logger = logging.getLogger(__name__)
 
-_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=2000)
-_llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+_llm: ChatOpenAI | None = None
+_llm_with_tools = None
 _adapter = MCPAdapter()
+_DEFAULT_LLM_MODEL = os.getenv("DEVOPS_AGENT_MODEL", "gpt-4o-mini")
 
 
-def _invoke_with_retry(llm, messages, max_retries: int = 4):
-    """Invoke LLM with exponential backoff on 429 RateLimitError."""
-    from openai import RateLimitError
-    delay = 5.0
-    for attempt in range(max_retries):
-        try:
-            return llm.invoke(messages)
-        except RateLimitError as exc:
-            if attempt == max_retries - 1:
-                raise
-            logger.warning("[EXECUTOR] Rate limit hit (attempt %d/%d), retrying in %.1fs: %s",
-                           attempt + 1, max_retries, delay, exc)
-            time.sleep(delay)
-            delay = min(delay * 2, 60.0)
-    return llm.invoke(messages)  # unreachable, satisfies type checkers
+def _get_llm_with_tools():
+    """Lazily create the LLM so OPENAI_API_KEY is read at call time, not at import time."""
+    global _llm, _llm_with_tools
+    if _llm_with_tools is None:
+        _llm = ChatOpenAI(model=_DEFAULT_LLM_MODEL, temperature=0, max_tokens=2000)
+        _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+    return _llm_with_tools
+
 
 def load_prompt(name: str) -> str:
     return Path(f"../prompts/{name}.md").read_text(encoding="utf-8").strip()
 
-def executor_node(state: AgentState) -> AgentState:
-    plan: list[dict[str, Any]] = state.get("plan", [])
-    dry_run: bool = state.get("dry_run", True)
-    event_kind = state.get("event_kind", "default")
 
-    if not plan:
-        return {
-            **state,
-            "execution_results": [],
-            "execution_summary": "No steps in plan — nothing executed.",
-        }
-
+def _run_plan_steps(plan: list[dict[str, Any]], dry_run: bool) -> list[dict[str, Any]]:
     raw_results: list[dict[str, Any]] = []
-    for i, step in enumerate(plan):
-        tool    = step.get("tool", "unknown")
-        action  = step.get("action", "unknown")
-        args    = step.get("args", {})
+    for index, step in enumerate(plan):
+        tool = step.get("tool", "unknown")
+        action = step.get("action", "unknown")
+        args = step.get("args", {})
 
         result = _adapter.run(service=tool, tool=action, params=args, dry_run=dry_run)
-
         if result.get("status") == "error" and "Unknown action" in result.get("message", ""):
             continue
 
         raw_results.append({
-            "step":   i + 1,
-            "tool":   tool,
+            "step": index + 1,
+            "tool": tool,
             "action": action,
-            "args":   args,
+            "args": args,
             "result": result,
         })
 
-    meaningful_results = [
-        r for r in raw_results
-        if not (
-            r.get("result", {}).get("status") == "error"
-            and "Unknown tool" in r.get("result", {}).get("message", "")
-        )
-    ]
+    return raw_results
 
+
+def _is_meaningful_result(result_entry: dict[str, Any]) -> bool:
+    result = result_entry.get("result", {})
+    if result.get("status") == "error" and "Unknown tool" in result.get("message", ""):
+        return False
+    if result.get("status") == "error" and result_entry.get("action") == "get_file_content":
+        message = result.get("message", "").lower()
+        if "not found" in message or "404" in message:
+            return False
+    return True
+
+
+def _filter_meaningful_results(raw_results: list[dict[str, Any]], event_kind: str) -> list[dict[str, Any]]:
+    meaningful_results = [result for result in raw_results if _is_meaningful_result(result)]
     if event_kind == "github_issue":
-        meaningful_results = [
-            r for r in meaningful_results
-            if r.get("tool") != "kubernetes"
-        ]
+        meaningful_results = [result for result in meaningful_results if result.get("tool") != "kubernetes"]
+    return meaningful_results
 
-    results_block = json.dumps(meaningful_results, indent=2, default=str)
 
-    MAX_RESULTS_CHARS = 8000
-    if len(results_block) > MAX_RESULTS_CHARS:
-        results_block = results_block[-MAX_RESULTS_CHARS:]
-        results_block = "[... truncated to last 8000 chars ...]\n" + results_block
+def _trim_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars] + "\n[... truncated ...]"
 
-    issue_body = state.get('issue_body', '')
-    MAX_BODY_CHARS = 2000
-    if len(issue_body) > MAX_BODY_CHARS:
-        issue_body = issue_body[:MAX_BODY_CHARS] + "\n[... truncated ...]"
 
+def _build_messages(state: AgentState, results_block: str) -> list[Any]:
+    event_kind = state.get("event_kind", "default")
+    issue_body = _trim_text(state.get("issue_body", ""), 2000)
     system_prompt = _build_system_prompt(event_kind)
 
-    messages = [
+    return [
         SystemMessage(content=system_prompt),
         HumanMessage(content=(
             f"## Event\n"
@@ -122,22 +110,24 @@ def executor_node(state: AgentState) -> AgentState:
             f"(numbered actionable steps a developer can follow right now)\n\n"
             f"## \u26a0\ufe0f Risk / Side Effects\n"
             f"(what could go wrong, what to verify after applying the fix)"
-        ))
+        )),
     ]
 
-    ai_response: AIMessage = _invoke_with_retry(_llm_with_tools, messages)
 
+def _run_tool_call_rounds(ai_response: AIMessage) -> tuple[AIMessage, int, list[Any]]:
+    messages: list[Any] = []
     tool_call_rounds = 0
+
     while getattr(ai_response, "tool_calls", None) and tool_call_rounds < 3:
         tool_call_rounds += 1
         messages.append(ai_response)
 
-        for tc in ai_response.tool_calls:
-            fn_name   = tc["name"]
-            fn_args   = tc["args"]
-            tool_call_id = tc["id"]
+        for tool_call in ai_response.tool_calls:
+            fn_name = tool_call["name"]
+            fn_args = tool_call["args"]
+            tool_call_id = tool_call["id"]
 
-            matched = next((t for t in ALL_TOOLS if t.name == fn_name), None)
+            matched = next((tool for tool in ALL_TOOLS if tool.name == fn_name), None)
             if matched:
                 try:
                     tool_result = matched.invoke(fn_args)
@@ -151,7 +141,33 @@ def executor_node(state: AgentState) -> AgentState:
                 tool_call_id=tool_call_id,
             ))
 
-        ai_response = _invoke_with_retry(_llm_with_tools, messages)
+        ai_response = _invoke_with_retry(_get_llm_with_tools(), messages)
+
+    return ai_response, tool_call_rounds, messages
+
+def executor_node(state: AgentState) -> AgentState:
+    plan: list[dict[str, Any]] = state.get("plan", [])
+    dry_run: bool = state.get("dry_run", True)
+
+    if not plan:
+        return {
+            **state,
+            "execution_results": [],
+            "execution_summary": "No steps in plan — nothing executed.",
+        }
+
+    raw_results = _run_plan_steps(plan, dry_run)
+    event_kind = state.get("event_kind", "default")
+    meaningful_results = _filter_meaningful_results(raw_results, event_kind)
+    results_block = json.dumps(meaningful_results, indent=2, default=str)
+    results_block = _trim_text(results_block, 5000)
+
+    messages = _build_messages(state, results_block)
+
+    ai_response: AIMessage = _invoke_with_retry(_get_llm_with_tools(), messages)
+
+    ai_response, _, tool_messages = _run_tool_call_rounds(ai_response)
+    messages.extend(tool_messages)
 
     summary: str = (
         ai_response.content

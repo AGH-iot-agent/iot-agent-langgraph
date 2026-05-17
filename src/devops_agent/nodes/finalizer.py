@@ -4,6 +4,15 @@ from devops_agent.state import AgentState
 
 
 def finalizer_node(state: AgentState) -> AgentState:
+    # Security block takes priority — never leak execution details in this case
+    if state.get("security_blocked"):
+        state["final_summary"] = (
+            "Request blocked by the AI security layer. "
+            "Detected a high-severity threat (prompt injection, jailbreak, or similar). "
+            "No actions were taken."
+        )
+        return state
+
     execution_summary = state.get("execution_summary", "")
     if execution_summary:
         state["final_summary"] = execution_summary

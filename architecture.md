@@ -49,3 +49,59 @@ Dla kazdego kroku write zdefiniuj:
 - ADR-002: granice uprawnien K8s
 - ADR-003: poziom autonomii agenta (auto-apply vs human-in-the-loop)
 - ADR-004: format audytu i retencja
+
+## Drugi set architektury: Evaluation & Quality
+
+Cel tej warstwy: mierzyc jakosc agenta i koszt rozwiazania problemu end-to-end,
+zamiast oceniac tylko fakt publikacji komentarza/PR.
+
+### Komponenty
+
+1. `execution telemetry` (node executor):
+- input_tokens, output_tokens
+- liczba rund tool-calling
+- liczba krokow planu
+
+2. `dispatch telemetry` (watchdog):
+- trace_id dla kazdego eventu
+- czas startu i czas zamkniecia obslugi eventu
+- MTTR na poziomie eventu
+
+3. `quality outcomes`:
+- validation_passed (czy sandbox walidacja przeszla)
+- pr_created (czy utworzono fix PR)
+- revision_count (ile razy krytyk odrzucil plan)
+
+4. `api reporting`:
+- endpoint listy eventow z metrykami
+- endpoint agregatow (srednie i rate)
+
+### Przeplyw metryk
+
+`watchdog dispatch start` -> `planner/critic/executor` -> `ci_fixer/validator` -> `watchdog dispatch end` -> `metrics store`
+
+### KPI do oceny agenta
+
+- `MTTR` (Mean Time To Resolve):
+	sredni czas od pojawienia sie eventu do final_summary/PR.
+
+- `Total tokens per incident`:
+	input_tokens + output_tokens dla pojedynczego eventu.
+
+- `Steps to resolve`:
+	liczba krokow planu + rund tool-calling.
+
+- `Validation pass rate`:
+	odsetek eventow, gdzie sandbox walidacja przeszla.
+
+- `PR creation rate`:
+	odsetek eventow konczacych sie utworzeniem fix PR.
+
+- `Revision pressure`:
+	srednia liczba poprawek planu (revision_count).
+
+### SLO (proponowane)
+
+- GitHub Issue events: MTTR < 90s, input_tokens < 8k
+- GitHub PR/CI failures: MTTR < 120s, input_tokens < 12k
+- Prometheus/Loki alerts: MTTR < 60s, input_tokens < 10k

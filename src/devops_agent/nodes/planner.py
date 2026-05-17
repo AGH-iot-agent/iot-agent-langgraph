@@ -40,13 +40,16 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
     repo = context.get("repo_full_name", "")
     run_id = context.get("run_id", 0)
     branch = context.get("branch", "main")
+    # Deploy failures land in iotag-sbx; PR build failures in iotag-dev
+    namespace = context.get("namespace", "iotag-sbx")
 
-    return [
+    plan: list[PlanStep] = [
         {
             "tool": "github",
             "action": "get_job_logs",
             "args": {"repo": repo, "run_id": run_id, "job_id": 0},
         },
+        # Fetch the CI workflow file (always named ci.yml in this project — not build.yml)
         {
             "tool": "github",
             "action": "get_file_content",
@@ -62,7 +65,34 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_file_content",
             "args": {"repo": repo, "path": "Helm/values-sbx.yaml", "ref": branch},
         },
+        # K8s state in the deploy target namespace — critical for deploy-step failures
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
     ]
+
+    # Fetch recent pod logs from Loki to catch CrashLoopBackOff / OOMKilled messages
+    service = _infer_service_from_repo(repo)
+    if service:
+        plan.append({
+            "tool": "loki",
+            "action": "query_range",
+            "args": {
+                "namespace": namespace,
+                "service": service,
+                "last_minutes": 15,
+                "limit": 100,
+            },
+        })
+
+    return plan
 
 
 def _kubernetes_plan(state: AgentState, request: str) -> list[PlanStep]:
@@ -219,6 +249,88 @@ def _prometheus_alert_plan(state: AgentState, request: str) -> list[PlanStep]:
     ]
 
 
+def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
+    """Plan for traffic spikes, DDoS, and resource pressure events."""
+    context = state.get("context", {})
+    namespace = context.get("namespace", "iotag-dev")
+    pod = context.get("pod", "")
+    service = context.get("service", "") or context.get("app", "") or (pod.rsplit("-", 2)[0] if pod else "")
+    repo = context.get("repo_full_name", "")
+
+    plan: list[PlanStep] = [
+        # 1. Confirm spike is still active
+        {
+            "tool": "prometheus",
+            "action": "query",
+            "args": {
+                "query": f'sum(rate(http_server_requests_seconds_count{{namespace="{namespace}"}}[1m])) by (pod)',
+            },
+        },
+        # 2. Current replica count and pod health
+        {
+            "tool": "kubernetes",
+            "action": "get_rollout_status",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        # 3. Loki errors during spike
+        {
+            "tool": "loki",
+            "action": "query_range",
+            "args": {
+                "namespace": namespace,
+                "service": service,
+                "last_minutes": 5,
+                "limit": 100,
+            },
+        },
+    ]
+
+    # 4. If we know the repo, fetch current values to propose a fix
+    if repo:
+        plan.append({
+            "tool": "github",
+            "action": "get_file_content",
+            "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": "main"},
+        })
+
+    return plan
+
+
+def _loki_error_plan(state: AgentState, request: str) -> list[PlanStep]:
+    """Plan for loki_error_spike events — identify service and check K8s state."""
+    context = state.get("context", {})
+    namespace = context.get("namespace", "iotag-dev")
+    app = context.get("app", "") or context.get("service", "")
+
+    return [
+        {
+            "tool": "loki",
+            "action": "query_range",
+            "args": {
+                "namespace": namespace,
+                "service": app,
+                "last_minutes": 10,
+                "limit": 200,
+            },
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
+    ]
+
+
 def _orphaned_resource_plan(state: AgentState, request: str) -> list[PlanStep]:
     """Plan for detecting and cleaning orphaned K8s resources."""
     context = state.get("context", {})
@@ -258,15 +370,16 @@ def _base_plan(request: str) -> list[PlanStep]:
 
 
 def _infra_issue_plan(state: AgentState, request: str) -> list[PlanStep]:
-    """Plan for github_issue / github_pr events — fetch real Helm + CI files for fix proposals."""
+    """Plan for github_issue / github_pr events — fetch real Helm + CI files + live K8s context."""
     context = state.get("context", {})
     repo = context.get("repo_full_name", "")
+    namespace = context.get("namespace", "iotag-dev")
     branch = (
         context.get("branch")
         or (context.get("pr") or {}).get("head", {}).get("ref", "")
         or "main"
     )
-    return [
+    plan: list[PlanStep] = [
         {
             "tool": "github",
             "action": "get_file_content",
@@ -287,7 +400,34 @@ def _infra_issue_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_commit_history",
             "args": {"repo": repo, "per_page": 5},
         },
+        # Live K8s state — confirms whether pods are actually crashing / healthy
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
     ]
+
+    # Loki logs for the service mentioned in the issue (e.g. CrashLoopBackOff / HikariPool errors)
+    service = _infer_service_from_repo(repo)
+    if service:
+        plan.append({
+            "tool": "loki",
+            "action": "query_range",
+            "args": {
+                "namespace": namespace,
+                "service": service,
+                "last_minutes": 30,
+                "limit": 150,
+            },
+        })
+
+    return plan
 
 
 def _extract_search_terms(issue_body: str) -> list[str]:
@@ -322,8 +462,10 @@ def planner_node(state: AgentState) -> AgentState:
         plan = _ci_failure_plan(state, request)
     elif event_kind in ("github_issue", "github_pr"):
         plan = _infra_issue_plan(state, request)
-    elif event_kind in ("high_cpu_usage", "high_http_latency", "high_error_rate"):
-        plan = _prometheus_alert_plan(state, request)
+    elif event_kind in ("request_rate_spike", "high_cpu_usage", "high_http_latency", "high_error_rate"):
+        plan = _scalability_plan(state, request)
+    elif event_kind == "loki_error_spike":
+        plan = _loki_error_plan(state, request)
     elif event_kind in ("k8s_orphaned_resource",):
         plan = _orphaned_resource_plan(state, request)
     elif event_kind in ("istio_vs_misconfiguration",):

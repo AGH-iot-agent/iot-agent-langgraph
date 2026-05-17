@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,6 +12,7 @@ from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
 from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor
+from devops_agent.metrics import agent_metrics
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -158,9 +160,49 @@ def run_agent(payload: RunRequest) -> dict:
         "max_revisions": payload.max_revisions,
         "context": payload.context,
     }
+    started_at = time.time()
     result = compiled_graph.invoke(initial_state)
+    token_usage = result.get("token_usage") or {}
+    input_tokens = int(token_usage.get("input_tokens", 0))
+    output_tokens = int(token_usage.get("output_tokens", 0))
+    plan = result.get("plan") or []
+    validation = result.get("validation_result") or {}
+    agent_metrics.record(
+        {
+            "trace_id": str(payload.context.get("trace_id", "manual-run")),
+            "event_kind": str(result.get("event_kind", "manual_run")),
+            "repo": str(payload.context.get("repo_full_name", "")),
+            "title": payload.request,
+            "mttr_s": time.time() - started_at,
+            "plan_step_count": len(plan),
+            "tool_call_rounds": int(token_usage.get("tool_call_rounds", 0)),
+            "revision_count": int(result.get("revision_count", 0)),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "validation_passed": bool(validation.get("passed", False)),
+            "pr_created": bool(result.get("pr_url")),
+        }
+    )
     logger.info("Run agent result: %s", result)
-    return result
+
+    # Surface security metadata to the caller without exposing raw violations
+    security_violations = result.get("security_violations") or []
+    security_blocked = bool(result.get("security_blocked", False))
+    if security_violations:
+        logger.warning(
+            "[SECURITY] %d violation(s) recorded during run. blocked=%s",
+            len(security_violations), security_blocked,
+        )
+
+    response = dict(result)
+    response["security"] = {
+        "blocked": security_blocked,
+        "violation_count": len(security_violations),
+        # Expose threat types only — never echo matched patterns back to caller
+        "threat_types": list({v.get("threat_type") for v in security_violations}),
+    }
+    return response
 
 @app.post("/watch/start")
 def watch_start(payload: WatchStartRequest) -> dict[str, Any]:
@@ -196,3 +238,19 @@ def watch_alerts(limit: int = 50) -> dict[str, Any]:
     alerts = watchdog.recent_alerts(limit=max(1, min(limit, 200)))
     logger.info("Watchdog alerts: %d alerts returned", len(alerts))
     return {"status": "ok", "alerts": alerts}
+
+
+@app.get("/metrics/events")
+def metrics_events(limit: int = 50) -> dict[str, Any]:
+    limit = max(1, min(limit, 500))
+    return {"status": "ok", "events": agent_metrics.list_events(limit=limit)}
+
+
+@app.get("/metrics/summary")
+def metrics_summary() -> dict[str, Any]:
+    return {"status": "ok", "summary": agent_metrics.summary()}
+
+
+@app.get("/metrics/adapters")
+def metrics_adapters() -> dict[str, Any]:
+    return {"status": "ok", "summary": agent_metrics.adapter_summary()}

@@ -11,10 +11,6 @@
   - Zarządzanie deploymentami, szablony dla wszystkich serwisów.
 - **Istio:**  
   - Service mesh, routing, mTLS, monitoring ruchu, circuit breaking.
-- **Cert-Manager / Let's Encrypt:**  
-  - Automatyczne certyfikaty TLS.
-- **Keycloak:**  
-  - SSO, zarządzanie tożsamością i autoryzacją.
 - **Ingress / API Gateway:**  
   - NGINX lub Istio Gateway, centralny punkt wejścia do API.
 - **Persistent Volumes:**  
@@ -34,8 +30,6 @@
   - Zarządzanie urządzeniami IoT, rejestracja, statusy.
 - **iot-agent-gateway-api:**  
   - Brama API, proxy do innych serwisów, translacja protokołów.
-- **iot-agent-logs:**  
-  - Zbieranie i udostępnianie logów (np. Loki).
 - **iot-agent-monitoring:**  
   - Prometheus, Grafana, alerting, metryki.
 - **iot-agent-mqtt-broker:**  
@@ -95,8 +89,6 @@
 
 ## 7. Bezpieczeństwo
 
-- **Keycloak:**  
-  - SSO, role, integracja z API Gateway.
 - **Secrets Management:**  
   - K8s secrets, sealed-secrets, cert-manager.
 - **Network Policies:**  

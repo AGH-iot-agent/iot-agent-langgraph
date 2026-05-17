@@ -12,17 +12,16 @@ from devops_agent.nodes.ci_fixer import ci_fixer_node
 from devops_agent.nodes.sandbox_validator import sandbox_validator_node, route_after_validation
 from devops_agent.nodes.pr_creator import pr_creator_node
 from devops_agent.nodes.pr_fix_commenter import pr_fix_commenter_node
+from devops_agent.nodes.security_nodes import (
+    security_input_node,
+    security_output_node,
+    route_after_security_input,
+)
 from devops_agent.state import AgentState
 from devops_agent.graph_tools import ALL_TOOLS
 
 import logging
 logger = logging.getLogger("devops_agent.graph")
-
-def _route_entry(state: AgentState) -> str:
-    """Route CI failure events directly to executor (planner already ran), others through standard flow."""
-    if state.get("event_kind") == "github_ci_failure":
-        return "planner"
-    return "planner"
 
 
 def build_graph():
@@ -35,6 +34,10 @@ def build_graph():
             return fn(state)
         return wrapper
 
+    # Security gates (entry + exit)
+    graph.add_node("security_input",    log_node("security_input",    security_input_node))
+    graph.add_node("security_output",   log_node("security_output",   security_output_node))
+
     graph.add_node("planner",           log_node("planner", planner_node))
     graph.add_node("critic",            log_node("critic", critic_node))
     graph.add_node("executor",          log_node("executor", executor_node))
@@ -45,7 +48,18 @@ def build_graph():
     graph.add_node("pr_creator",        log_node("pr_creator", pr_creator_node))
     graph.add_node("pr_fix_commenter",  log_node("pr_fix_commenter", pr_fix_commenter_node))
 
-    graph.set_entry_point("planner")
+    # Entry point is now the security input gate
+    graph.set_entry_point("security_input")
+
+    # After input scan: safe → planner, blocked → finalizer (skips everything)
+    graph.add_conditional_edges(
+        "security_input",
+        route_after_security_input,
+        {
+            "planner":   "planner",
+            "finalizer": "finalizer",
+        },
+    )
 
     graph.add_edge("planner", "critic")
 
@@ -91,6 +105,7 @@ def build_graph():
         "sandbox_validator",
         log_route_after_validation,
         {
+            "ci_fixer":         "ci_fixer",
             "pr_creator":       "pr_creator",
             "pr_fix_commenter": "pr_fix_commenter",
             "finalizer":        "finalizer",
@@ -98,19 +113,25 @@ def build_graph():
     )
     graph.add_edge("pr_creator",       "finalizer")
     graph.add_edge("pr_fix_commenter", "finalizer")
-    graph.add_edge("finalizer",  END)
+    # Output sanitisation runs after the finalizer, before END
+    graph.add_edge("finalizer",        "security_output")
+    graph.add_edge("security_output",  END)
 
     # logger.info("LangGraph compilation completed.")
     return graph.compile()
 
 
 def _route_executor(state: AgentState) -> str:
-    """Route after executor: tool calls → tools; CI/PR/issue events → ci_fixer; else finalizer."""
+    """Route after executor: tool calls → tools; CI/PR build failure events → ci_fixer; else finalizer.
+
+    github_issue events are fully handled by executor (produces a comment via execution_summary)
+    and MUST NOT reach ci_fixer or pr_creator — those nodes only know how to fix CI failures.
+    """
     messages = state.get("messages", [])
     if messages and getattr(messages[-1], "tool_calls", None):
         return "tools"
     if state.get("event_kind") in (
-        "github_ci_failure", "github_pr_build_failure", "github_issue", "github_pr"
+        "github_ci_failure", "github_pr_build_failure"
     ):
         return "ci_fixer"
     return "finalizer"

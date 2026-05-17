@@ -3,6 +3,16 @@ from typing import Any, Literal, TypedDict
 
 RiskLevel = Literal["low", "medium", "high"]
 
+# Security threat types surfaced by the SecurityLayer
+SecurityThreatType = Literal[
+    "prompt_injection",
+    "jailbreak",
+    "secret_leakage",
+    "pii_leakage",
+    "data_exfiltration",
+    "malicious_tool_call",
+]
+
 
 class PlanStep(TypedDict):
     tool: str
@@ -26,8 +36,16 @@ class AgentState(TypedDict, total=False):
     event_kind: str
     issue_title: str
     issue_body: str
-    # CI failure → PR flow
     ci_fix_proposal: dict[str, Any] | None      # {files: [{path, content}], root_cause: str}
     validation_result: dict[str, Any] | None    # {passed: bool, errors: list[str], output: str}
     pr_url: str | None                          # URL of the created PR (if opened)
+    fix_target_branch: str | None               # branch the fix PR should target (PR branch for pr_build_failure, main otherwise)
+    fix_pr_number: int | None                   # PR number that triggered a pr_build_failure event
+    fix_attempt: int                            # current attempt number (incremented by ci_fixer before each attempt)
+    max_fix_attempts: int                       # max retries allowed (default 3)
+    validation_history: list[dict[str, Any]]    # all past validation_result dicts (fed back to ci_fixer)
+    token_usage: dict[str, int]                 # {input_tokens, output_tokens, tool_call_rounds, plan_step_count}
     messages: list[Any]                         # LangChain message history for tool calls
+    # --- Security ---
+    security_violations: list[dict[str, str]]   # serialised SecurityViolation dicts accumulated across the run
+    security_blocked: bool                      # True when a critical/high threat caused the run to be halted

@@ -1,0 +1,130 @@
+{
+  "event_kind": "github_ci_failure",
+  "description": "Przypadki testowe dla błędów CI (Helm values, YAML, probe errors)",
+  "cases": [
+    {
+      "case_id": "ci001",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "org/iot-agent-gateway-api",
+        "run_id": 12345,
+        "branch": "main",
+        "error_summary": "UPGRADE FAILED: rendered manifests contain a resource that already exists in namespace iotag-dev",
+        "job_log_snippet": "Error: UPGRADE FAILED: rendered manifests contain a resource that already exists\n  namespace iotag-dev, resource already exists\n  Helm release: iot-agent-gateway-api"
+      },
+      "expected_indicators": [
+        "global.namespace",
+        "iotag-sbx",
+        "values-sbx.yaml"
+      ],
+      "forbidden_indicators": [
+        "image.repository",
+        "image.tag",
+        "replicaCount"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 5,
+      "metadata": {"source": "real_incident", "date": "2025-03-15"}
+    },
+    {
+      "case_id": "ci002",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "org/iot-agent-device-api",
+        "run_id": 22222,
+        "branch": "main",
+        "error_summary": "cannot unmarshal string into Go value of type int32",
+        "job_log_snippet": "Error: INSTALLATION FAILED: cannot unmarshal string into Go value of type int32\n  field: replicaCount"
+      },
+      "expected_indicators": [
+        "replicaCount",
+        "int32",
+        "values"
+      ],
+      "forbidden_indicators": [
+        "image.repository",
+        "global.namespace"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 5,
+      "metadata": {"source": "real_incident", "date": "2025-04-10"}
+    },
+    {
+      "case_id": "ci003",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "org/iot-agent-dashboard-api",
+        "run_id": 33333,
+        "branch": "feature/new-probe",
+        "error_summary": "nil pointer evaluating interface {}.enabled – livenessprobe.enabled",
+        "job_log_snippet": "Error: template: iot-agent/templates/deployment.yaml:42:12: executing \"iot-agent/templates/deployment.yaml\" at <.Values.livenessProbe.enabled>: nil pointer evaluating interface {}.enabled"
+      },
+      "expected_indicators": [
+        "livenessProbe",
+        "enabled",
+        "indentation"
+      ],
+      "forbidden_indicators": [
+        "image.tag",
+        "replicaCount"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 6,
+      "metadata": {"source": "synthetic"}
+    },
+    {
+      "case_id": "ci004",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "org/iot-agent-stream-worker",
+        "run_id": 44444,
+        "branch": "main",
+        "error_summary": "Maven build failure: compilation error in StreamWorkerApplication.java",
+        "job_log_snippet": "[ERROR] COMPILATION ERROR\n  StreamWorkerApplication.java:[45,12] error: cannot find symbol\n  symbol: method processEvent(EventPayload)\n  location: class KafkaConsumer"
+      },
+      "expected_indicators": [
+        "compilation",
+        "StreamWorkerApplication",
+        "processEvent"
+      ],
+      "forbidden_indicators": [
+        "helm",
+        "global.namespace"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 8,
+      "metadata": {"source": "synthetic"}
+    },
+    {
+      "case_id": "ci005",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "org/iot-agent-auth",
+        "run_id": 55555,
+        "branch": "main",
+        "error_summary": "Docker build failed: COPY failed: file not found in build context",
+        "job_log_snippet": "Step 4/8 : COPY target/*.jar /app/app.jar\nCOPY failed: file not found in build context or excluded by .dockerignore: stat target/*.jar: file does not match any files in context"
+      },
+      "expected_indicators": [
+        "COPY",
+        "target",
+        "Dockerfile",
+        "jar"
+      ],
+      "forbidden_indicators": [
+        "global.namespace",
+        "livenessProbe"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 6,
+      "metadata": {"source": "synthetic"}
+    }
+  ],
+  "created_at": "2026-05-15T00:00:00",
+  "updated_at": "2026-05-15T00:00:00"
+}
