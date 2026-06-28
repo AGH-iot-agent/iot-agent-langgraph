@@ -24,6 +24,12 @@ COPY src/ ./src/
 
 RUN pip install --no-cache-dir -e .
 
+# Install guardrails optional extras (Presidio + detect-secrets) then Hub validators
+RUN pip install --no-cache-dir -e ".[guardrails]"
+RUN python -m spacy download en_core_web_sm
+RUN guardrails hub install hub://guardrails/detect_pii --quiet
+RUN guardrails hub install hub://guardrails/secrets_present --quiet
+
 RUN mkdir -p /home/app/.kube && chown -R app:app /home/app/.kube /app
 
 USER app

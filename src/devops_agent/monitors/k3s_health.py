@@ -42,9 +42,11 @@ class K3sHealthMonitor(BaseMonitor):
                 is_unhealthy = phase not in {"Running", "Succeeded"} or not ready or restarts > 3
                 if is_unhealthy:
                     if name not in self._alerted:
+                        # Check for OOMKilled by inspecting the full pod object via describe
+                        event_kind, event_title = self._classify_pod_event(name, phase, restarts, k8s_events)
                         events.append(AgentEvent(
-                            kind="k8s_pod_crash",
-                            title=f"Pod unhealthy: {name} (phase={phase}, restarts={restarts})",
+                            kind=event_kind,
+                            title=event_title,
                             context={
                                 "namespace": self._namespace,
                                 "pod": pod,
@@ -62,6 +64,59 @@ class K3sHealthMonitor(BaseMonitor):
         except Exception:
             logger.exception("[K3sHealthMonitor] poll failed")
         return events
+
+    def _classify_pod_event(
+        self,
+        pod_name: str,
+        phase: str,
+        restarts: int,
+        k8s_events: list[dict],
+    ) -> tuple[str, str]:
+        """Return (event_kind, title) for an unhealthy pod.
+
+        Promotes to ``k8s_pod_oomkilled`` when:
+        - Any cluster event has reason "OOMKilling" or "OOMKilled" for this pod, OR
+        - The full pod spec (fetched via describe) contains lastState.terminated.reason == OOMKilled.
+
+        Falls back to generic ``k8s_pod_crash`` for all other failures.
+        """
+        oom_reasons = {"OOMKilling", "OOMKilled"}
+
+        # Fast path: check already-fetched cluster events (no extra kubectl call).
+        for evt in k8s_events:
+            if evt.get("object") == pod_name and evt.get("reason") in oom_reasons:
+                return (
+                    "k8s_pod_oomkilled",
+                    f"Pod OOMKilled: {pod_name} (restarts={restarts})",
+                )
+
+        # Slower path: fetch full pod JSON and inspect lastState.terminated.reason.
+        try:
+            pod_resp = self._adapter.run(
+                "kubernetes", "get_pod",
+                {"pod_name": pod_name, "namespace": self._namespace},
+                dry_run=False,
+            )
+            if pod_resp.get("status") == "ok":
+                container_statuses = (
+                    pod_resp.get("pod", {})
+                    .get("status", {})
+                    .get("containerStatuses", [])
+                )
+                for cs in container_statuses:
+                    last_terminated = cs.get("lastState", {}).get("terminated", {})
+                    if last_terminated.get("reason") == "OOMKilled":
+                        return (
+                            "k8s_pod_oomkilled",
+                            f"Pod OOMKilled: {pod_name} (restarts={restarts})",
+                        )
+        except Exception:
+            logger.debug("[K3sHealthMonitor] could not fetch full pod for %s", pod_name)
+
+        return (
+            "k8s_pod_crash",
+            f"Pod unhealthy: {pod_name} (phase={phase}, restarts={restarts})",
+        )
 
     @staticmethod
     def _pod_references(pods: list[dict]) -> set[str]:

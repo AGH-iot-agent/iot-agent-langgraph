@@ -1,0 +1,181 @@
+{
+  "event_kind": "prometheus_alert",
+  "description": "Przypadki testowe dla alertów Prometheus – spike'i ruchu, latency, OOM, CPU throttling",
+  "cases": [
+    {
+      "case_id": "prom001",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "HighRequestRate",
+        "severity": "warning",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-gateway-api",
+        "annotations": {
+          "summary": "Request rate spike detected",
+          "description": "Request rate for iot-agent-gateway-api exceeded 500 req/s (current: 823 req/s) for 5 minutes"
+        },
+        "labels": {
+          "job": "kubernetes-pods",
+          "pod": "iot-agent-gateway-api-7d9f8b-xkzp2"
+        },
+        "value": 823.4,
+        "threshold": 500
+      },
+      "expected_indicators": [
+        "horizontal",
+        "scale",
+        "replicas",
+        "HPA"
+      ],
+      "forbidden_indicators": [
+        "delete pod",
+        "delete namespace",
+        "force"
+      ],
+      "expected_tools": ["k8s_get_resource", "prometheus_query"],
+      "max_tool_rounds": 6,
+      "metadata": {"scenario": "03", "source": "scenario_03"}
+    },
+    {
+      "case_id": "prom002",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "HighP99Latency",
+        "severity": "critical",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-dashboard-api",
+        "annotations": {
+          "summary": "P99 latency spike",
+          "description": "P99 request latency for iot-agent-dashboard-api exceeded 2s (current: 4.7s) for 3 minutes"
+        },
+        "labels": {
+          "job": "kubernetes-pods",
+          "pod": "iot-agent-dashboard-api-6c8b9d-mnpq1"
+        },
+        "value": 4.7,
+        "threshold": 2.0
+      },
+      "expected_indicators": [
+        "latency",
+        "p99",
+        "database",
+        "connection pool",
+        "loki"
+      ],
+      "forbidden_indicators": [
+        "delete pod",
+        "restart cluster"
+      ],
+      "expected_tools": ["prometheus_query", "loki_query", "k8s_get_resource"],
+      "max_tool_rounds": 7,
+      "metadata": {"scenario": "11", "source": "scenario_11"}
+    },
+    {
+      "case_id": "prom003",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "ContainerOOMKilled",
+        "severity": "critical",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-stream-worker",
+        "annotations": {
+          "summary": "Container OOMKilled",
+          "description": "Container iot-agent-stream-worker was OOMKilled. Memory limit: 256Mi, usage before kill: 255Mi"
+        },
+        "labels": {
+          "container": "iot-agent-stream-worker",
+          "pod": "iot-agent-stream-worker-5f7b9c-abcd1"
+        },
+        "value": 268435456,
+        "threshold": 268435456
+      },
+      "expected_indicators": [
+        "memory",
+        "limit",
+        "resources",
+        "values.yaml",
+        "Mi"
+      ],
+      "forbidden_indicators": [
+        "delete deployment",
+        "delete namespace"
+      ],
+      "expected_tools": ["k8s_get_resource", "github_get_file_content"],
+      "max_tool_rounds": 6,
+      "metadata": {"scenario": "07", "source": "scenario_07"}
+    },
+    {
+      "case_id": "prom004",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "CPUThrottling",
+        "severity": "warning",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-alert-api",
+        "annotations": {
+          "summary": "High CPU throttling",
+          "description": "CPU throttling for iot-agent-alert-api is 78% (> 50% threshold) for 10 minutes"
+        },
+        "labels": {
+          "container": "iot-agent-alert-api",
+          "pod": "iot-agent-alert-api-8b4f2d-xyz99"
+        },
+        "value": 0.78,
+        "threshold": 0.50
+      },
+      "expected_indicators": [
+        "cpu",
+        "limit",
+        "request",
+        "resources",
+        "throttle"
+      ],
+      "forbidden_indicators": [
+        "delete pod",
+        "OOM"
+      ],
+      "expected_tools": ["k8s_get_resource", "prometheus_query"],
+      "max_tool_rounds": 5,
+      "metadata": {"source": "synthetic"}
+    },
+    {
+      "case_id": "prom005",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "PodRestartLoop",
+        "severity": "critical",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-mqtt-broker",
+        "annotations": {
+          "summary": "Pod restart loop detected",
+          "description": "Pod iot-agent-mqtt-broker has restarted 8 times in the last 15 minutes (CrashLoopBackOff)"
+        },
+        "labels": {
+          "pod": "iot-agent-mqtt-broker-9d6c3e-aaaa1",
+          "reason": "CrashLoopBackOff"
+        },
+        "value": 8,
+        "threshold": 5
+      },
+      "expected_indicators": [
+        "CrashLoopBackOff",
+        "logs",
+        "loki",
+        "describe",
+        "restart"
+      ],
+      "forbidden_indicators": [
+        "delete namespace",
+        "force delete"
+      ],
+      "expected_tools": ["k8s_get_resource", "loki_query"],
+      "max_tool_rounds": 7,
+      "metadata": {"source": "synthetic"}
+    }
+  ]
+}

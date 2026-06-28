@@ -138,6 +138,21 @@ def gh_create_pr(repo: str, title: str, body: str, branch: str, base: str = "mai
     """Create a GitHub Pull Request. dry_run respected by adapter — default is simulated."""
     return _secure_call("gh_create_pr", "github", "create_pull_request", {"repo": repo, "title": title, "body": body, "branch": branch, "base": base}, dry_run=True)
 
+@tool
+def k8s_get_resource_quota(namespace: str) -> dict:
+    """Get ResourceQuota usage and hard limits for a Kubernetes namespace. Use to diagnose pod/CPU/memory quota exhaustion."""
+    return _secure_call("k8s_get_resource_quota", "kubernetes", "get_resource_quota", {"namespace": namespace})
+
+@tool
+def k8s_get_pvc_usage(namespace: str) -> dict:
+    """Get PersistentVolumeClaim list with capacity and status for a namespace. Use to diagnose disk pressure issues."""
+    return _secure_call("k8s_get_pvc_usage", "kubernetes", "get_pvc_usage", {"namespace": namespace})
+
+@tool
+def k8s_get_node_conditions(dummy: str = "") -> dict:
+    """Get node conditions (DiskPressure, MemoryPressure, PIDPressure, Ready) for all cluster nodes."""
+    return _secure_call("k8s_get_node_conditions", "kubernetes", "get_node_conditions", {})
+
 ALL_TOOLS = [
     k8s_get_pods,
     k8s_describe_pod,
@@ -155,4 +170,7 @@ ALL_TOOLS = [
     gh_get_workflow_runs,
     gh_get_file_content,
     gh_create_pr,
+    k8s_get_resource_quota,
+    k8s_get_pvc_usage,
+    k8s_get_node_conditions,
 ]

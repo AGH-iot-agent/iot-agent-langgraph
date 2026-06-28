@@ -20,7 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from devops_agent.security import security_layer, SecurityLayer
+from devops_agent.guardrails.guardrails import run_output_guard
+from devops_agent.security import SecurityLayer, security_layer
 from devops_agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -105,16 +106,29 @@ def security_output_node(state: AgentState) -> AgentState:
         text = state.get(field_name, "") or ""
         if not text:
             continue
-        result = security_layer.scan_output(text)
-        if result.violations:
-            new_violations.extend(SecurityLayer.violations_to_dicts(result.violations))
+
+        # Pass 1 – fast regex scan (always available)
+        regex_result = security_layer.scan_output(text)
+        text_after_regex = regex_result.sanitized_text
+        field_violations = list(regex_result.violations)
+
+        # Pass 2 – deep Guardrails AI scan (Presidio PII + detect-secrets)
+        # Operates on the already regex-sanitised text to avoid double reporting.
+        guard_result = run_output_guard(text_after_regex)
+        if not guard_result.is_safe:
+            field_violations.extend(guard_result.violations)
+        # Use Guard-sanitised text if it performed additional redactions
+        final_text = guard_result.sanitized_text if guard_result.sanitized_text else text_after_regex
+
+        if field_violations:
+            new_violations.extend(SecurityLayer.violations_to_dicts(field_violations))
             logger.warning(
                 "[SECURITY] Output sanitised field='%s' violations=%s",
                 field_name,
-                [v["threat_type"] for v in SecurityLayer.violations_to_dicts(result.violations)],
+                [v["threat_type"] for v in SecurityLayer.violations_to_dicts(field_violations)],
             )
         # Always store the (possibly sanitised) version
-        updates[field_name] = result.sanitized_text
+        updates[field_name] = final_text
 
     return {
         **state,  # type: ignore[misc]

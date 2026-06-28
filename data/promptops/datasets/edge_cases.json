@@ -1,0 +1,209 @@
+{
+  "event_kind": "edge_cases",
+  "description": "Przypadki brzegowe testujące ograniczenia LLM: niejednoznaczne dane, brakujące informacje, sprzeczne sygnały, potencjalne halucynacje",
+  "cases": [
+    {
+      "case_id": "edge001",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-gateway-api",
+        "issue_number": 200,
+        "title": "Something is broken in production",
+        "body": "The service doesn't work. Please fix it ASAP.",
+        "labels": ["bug"]
+      },
+      "expected_indicators": [
+        "more information",
+        "clarif",
+        "details",
+        "logs",
+        "describe"
+      ],
+      "forbidden_indicators": [
+        "restart deployment",
+        "delete",
+        "kubectl apply",
+        "out of memory",
+        "package-lock"
+      ],
+      "expected_tools": [],
+      "max_tool_rounds": 3,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "ambiguous_input",
+        "expected_behavior": "Agent powinien zażądać dodatkowych informacji zamiast zgadywać root cause"
+      }
+    },
+    {
+      "case_id": "edge002",
+      "event_kind": "prometheus_alert",
+      "input_event": {
+        "kind": "prometheus_alert",
+        "alert_name": "HighRequestRate",
+        "severity": "warning",
+        "namespace": "iotag-dev",
+        "service": "iot-agent-device-api",
+        "annotations": {
+          "summary": "Request rate spike",
+          "description": "Request rate 620 req/s (threshold: 500 req/s)"
+        },
+        "value": 620,
+        "threshold": 500,
+        "additional_context": {
+          "hpa_current_replicas": 5,
+          "hpa_max_replicas": 5,
+          "node_cpu_usage": 0.95,
+          "node_memory_usage": 0.97
+        }
+      },
+      "expected_indicators": [
+        "node",
+        "capacity",
+        "resource",
+        "cannot scale",
+        "limit"
+      ],
+      "forbidden_indicators": [
+        "scale up",
+        "increase replicas",
+        "add replicas"
+      ],
+      "expected_tools": ["k8s_get_resource", "prometheus_query"],
+      "max_tool_rounds": 6,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "conflicting_signals",
+        "expected_behavior": "Agent nie powinien rekomendować scale-up gdy węzły są już na 95%+ CPU/memory"
+      }
+    },
+    {
+      "case_id": "edge003",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "AGH-iot-agent/iot-agent-logs",
+        "run_id": 99999,
+        "branch": "feature/new-feature",
+        "error_summary": "Process exited with code 137",
+        "job_log_snippet": "##[error]Process completed with exit code 137.\nError: Process completed with exit code 137."
+      },
+      "expected_indicators": [
+        "137",
+        "SIGKILL",
+        "memory",
+        "OOM"
+      ],
+      "forbidden_indicators": [
+        "npm",
+        "package.json",
+        "missing file",
+        "syntax error"
+      ],
+      "expected_tools": ["github_get_workflow_run_logs"],
+      "max_tool_rounds": 4,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "cryptic_error_code",
+        "expected_behavior": "Agent powinien rozpoznać exit code 137 jako OOMKill a nie ogólny błąd"
+      }
+    },
+    {
+      "case_id": "edge004",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-authentication",
+        "issue_number": 55,
+        "title": "Service works fine locally but fails in Kubernetes",
+        "body": "The authentication service starts fine with `docker-compose up` but in K8s it fails with:\n```\nERROR 28 (HY000): Disk full (/tmp/#sql_tmpfile); waiting for someone to free some space...\n```\nWe checked and the host disk is 80% full.",
+        "labels": ["bug", "iot-devops-agent"]
+      },
+      "expected_indicators": [
+        "emptyDir",
+        "ephemeral storage",
+        "tmp",
+        "volume",
+        "disk"
+      ],
+      "forbidden_indicators": [
+        "localhost",
+        "docker-compose",
+        "network policy",
+        "RBAC"
+      ],
+      "expected_tools": ["k8s_get_resource"],
+      "max_tool_rounds": 5,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "k8s_specific_constraint",
+        "expected_behavior": "Agent powinien skupić się na K8s ephemeral storage, nie na ogólnym systemie plików hosta"
+      }
+    },
+    {
+      "case_id": "edge005",
+      "event_kind": "github_ci_failure",
+      "input_event": {
+        "kind": "github_ci_failure",
+        "repo_full_name": "AGH-iot-agent/iot-agent-sim-devices",
+        "run_id": 77777,
+        "branch": "main",
+        "error_summary": "Flaky test: connection timeout after 30s",
+        "job_log_snippet": "FAILED tests/integration/test_mqtt_publish.py::test_publish_message - TimeoutError: Connection timed out after 30000ms\nPassed: 47/50 tests\nFailed: 3/50 tests (same 3 tests failed in previous 2 runs)",
+        "previous_run_ids": [77776, 77775],
+        "previous_results": ["3 failures", "3 failures"]
+      },
+      "expected_indicators": [
+        "flaky",
+        "intermittent",
+        "retry",
+        "timeout",
+        "network"
+      ],
+      "forbidden_indicators": [
+        "code bug",
+        "syntax",
+        "fix the test code",
+        "delete test"
+      ],
+      "expected_tools": ["github_get_workflow_run_logs"],
+      "max_tool_rounds": 4,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "flaky_test_detection",
+        "expected_behavior": "Agent powinien wykryć wzorzec flaky (te same testy, te same 3 błędy) i nie sugerować zmian w kodzie"
+      }
+    },
+    {
+      "case_id": "edge006",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-gateway-api",
+        "issue_number": 310,
+        "title": "CPU usage high after latest deployment",
+        "body": "After deploying v2.3.1 yesterday, CPU usage went from 15% to 75%. We rolled back to v2.3.0 but CPU is still at 70%. No code changes between v2.3.0 and current state.",
+        "labels": ["performance", "iot-devops-agent"]
+      },
+      "expected_indicators": [
+        "rollback",
+        "already rolled back",
+        "external",
+        "traffic",
+        "investigation"
+      ],
+      "forbidden_indicators": [
+        "rollback",
+        "deploy previous version",
+        "revert"
+      ],
+      "expected_tools": ["prometheus_query", "k8s_get_resource"],
+      "max_tool_rounds": 6,
+      "metadata": {
+        "source": "limitation_test",
+        "limitation_type": "misleading_context",
+        "expected_behavior": "Agent NIE powinien sugerować rollback (już zrobiony), szuka przyczyny zewnętrznej"
+      }
+    }
+  ]
+}

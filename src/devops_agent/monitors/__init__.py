@@ -6,6 +6,8 @@ from .github_ci_failure import GitHubCIFailureMonitor
 from .github_pr_build_monitor import GitHubPRBuildMonitor
 from .prometheus_metrics import PrometheusMetricsMonitor
 from .loki_errors import LokiErrorMonitor
+from .resource_quota import ResourceQuotaMonitor
+from .disk_pressure import DiskPressureMonitor
 
 __all__ = [
     "BaseMonitor",
@@ -16,4 +18,6 @@ __all__ = [
     "GitHubPRBuildMonitor",
     "PrometheusMetricsMonitor",
     "LokiErrorMonitor",
+    "ResourceQuotaMonitor",
+    "DiskPressureMonitor",
 ]

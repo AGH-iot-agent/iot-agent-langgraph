@@ -1,9 +1,69 @@
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from statistics import mean
 from typing import Any
+
+# SLO definitions per category (spójne z TEST_PLAN.md)
+_SLO: dict[str, dict[str, float | int]] = {
+    "github_issue": {"mttr_s": 90,  "input_tokens": 8000,  "tool_call_rounds": 6},
+    "github_ci_failure":    {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8},
+    "github_pr_build_failure": {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8},
+    "github_pr":            {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8},
+    "prometheus_alert":     {"mttr_s": 60,  "input_tokens": 10000, "tool_call_rounds": 7},
+    "prometheus_metrics":   {"mttr_s": 60,  "input_tokens": 10000, "tool_call_rounds": 7},
+    "loki_error":           {"mttr_s": 60,  "input_tokens": 10000, "tool_call_rounds": 7},
+}
+_SLO_DEFAULT: dict[str, float | int] = {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8}
+
+
+def _slo_violations(event: "EventMetrics") -> list[str]:
+    thresholds = _SLO.get(event.event_kind, _SLO_DEFAULT)
+    violations: list[str] = []
+    if event.mttr_s > thresholds["mttr_s"]:
+        violations.append(f"mttr_s {event.mttr_s:.1f} > {thresholds['mttr_s']}")
+    if event.input_tokens > thresholds["input_tokens"]:
+        violations.append(f"input_tokens {event.input_tokens} > {thresholds['input_tokens']}")
+    if event.tool_call_rounds > thresholds["tool_call_rounds"]:
+        violations.append(f"tool_call_rounds {event.tool_call_rounds} > {thresholds['tool_call_rounds']}")
+    return violations
+
+
+@dataclass
+class ManualBaseline:
+    scenario_id: str
+    name: str
+    category: str
+    manual_mttr_s: float
+    manual_steps_count: int
+    manual_resolver_role: str
+    notes: str
+
+
+def load_manual_baselines(path: Path | None = None) -> dict[str, ManualBaseline]:
+    """Wczytuje plik manual_baselines.json i zwraca słownik keyed by scenario_id."""
+    if path is None:
+        path = Path(__file__).parent.parent.parent.parent / "data" / "manual_baselines.json"
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    result: dict[str, ManualBaseline] = {}
+    for b in data.get("baselines", []):
+        sid = str(b["scenario_id"]).zfill(2)
+        result[sid] = ManualBaseline(
+            scenario_id=sid,
+            name=b.get("name", ""),
+            category=b.get("category", ""),
+            manual_mttr_s=float(b.get("manual_mttr_s", 0)),
+            manual_steps_count=int(b.get("manual_steps_count", 0)),
+            manual_resolver_role=b.get("manual_resolver_role", ""),
+            notes=b.get("notes", ""),
+        )
+    return result
 
 
 @dataclass
@@ -153,6 +213,18 @@ class AgentMetrics:
             by_kind[kind]["avg_mttr_s"] = round(mean(e.mttr_s for e in subset), 3)
             by_kind[kind]["avg_total_tokens"] = round(mean(e.total_tokens for e in subset), 2)
 
+        # SLO violations per event
+        slo_violations: list[dict[str, Any]] = []
+        for e in events:
+            viols = _slo_violations(e)
+            if viols:
+                slo_violations.append({
+                    "trace_id": e.trace_id,
+                    "event_kind": e.event_kind,
+                    "title": e.title,
+                    "violations": viols,
+                })
+
         return {
             "count": len(events),
             "avg_mttr_s": round(mean(e.mttr_s for e in events), 3),
@@ -163,6 +235,7 @@ class AgentMetrics:
             "avg_tool_rounds": round(mean(e.tool_call_rounds for e in events), 2),
             "pr_created_rate": round(sum(1 for e in events if e.pr_created) / len(events), 3),
             "validation_pass_rate": round(sum(1 for e in events if e.validation_passed) / len(events), 3),
+            "slo_violations": slo_violations,
             "by_event_kind": by_kind,
         }
 

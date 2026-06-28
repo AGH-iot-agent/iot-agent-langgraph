@@ -1,18 +1,21 @@
 from __future__ import annotations
+import csv
+import io
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
-from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor
-from devops_agent.metrics import agent_metrics
+from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor, ResourceQuotaMonitor, DiskPressureMonitor
+from devops_agent.metrics import agent_metrics, load_manual_baselines
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,10 @@ if not KUBERNETES_NAMESPACE:
 elif MONITOR_FLAGS["k8s"]:
     monitors.append(K3sHealthMonitor(adapter=mcp_adapter, namespace=KUBERNETES_NAMESPACE))
     active_monitors.append("k8s")
+    monitors.append(ResourceQuotaMonitor(adapter=mcp_adapter, namespace=KUBERNETES_NAMESPACE))
+    active_monitors.append("resource_quota")
+    monitors.append(DiskPressureMonitor(adapter=mcp_adapter, namespace=KUBERNETES_NAMESPACE))
+    active_monitors.append("disk_pressure")
 
 logger.info("Active monitors: %s", active_monitors)
 
@@ -254,3 +261,70 @@ def metrics_summary() -> dict[str, Any]:
 @app.get("/metrics/adapters")
 def metrics_adapters() -> dict[str, Any]:
     return {"status": "ok", "summary": agent_metrics.adapter_summary()}
+
+
+@app.get("/metrics/comparison")
+def metrics_comparison() -> dict[str, Any]:
+    """Zestawia MTTR agenta z ręcznymi baseline'ami dla każdego scenariusza."""
+    baselines = load_manual_baselines()
+    events = agent_metrics.list_events(limit=500)
+
+    rows: list[dict[str, Any]] = []
+    for b in baselines.values():
+        # Dopasuj event po tytule/kontekście jeśli możliwe; fallback: brak danych
+        agent_mttr: float | None = None
+        agent_tokens: int | None = None
+        for ev in events:
+            if b.scenario_id in ev.get("title", "") or b.name.split("(")[0].strip().lower() in ev.get("title", "").lower():
+                agent_mttr = ev.get("mttr_s")
+                agent_tokens = ev.get("total_tokens")
+                break
+
+        speedup = round(b.manual_mttr_s / agent_mttr, 2) if agent_mttr and agent_mttr > 0 else None
+        rows.append({
+            "scenario_id": b.scenario_id,
+            "name": b.name,
+            "category": b.category,
+            "manual_mttr_s": b.manual_mttr_s,
+            "manual_steps": b.manual_steps_count,
+            "manual_resolver_role": b.manual_resolver_role,
+            "agent_mttr_s": agent_mttr,
+            "agent_total_tokens": agent_tokens,
+            "speedup_factor": speedup,
+        })
+
+    measured = [r for r in rows if r["speedup_factor"] is not None]
+    avg_speedup = round(sum(r["speedup_factor"] for r in measured) / len(measured), 2) if measured else None
+
+    return {
+        "status": "ok",
+        "avg_speedup_factor": avg_speedup,
+        "scenarios_with_agent_data": len(measured),
+        "scenarios_total": len(rows),
+        "rows": rows,
+    }
+
+
+@app.get("/metrics/export")
+def metrics_export(format: str = Query(default="json", pattern="^(json|csv)$")) -> Any:
+    """Eksportuje wszystkie zdarzenia z metrykami do JSON lub CSV (dla pracy magisterskiej)."""
+    events = agent_metrics.list_events(limit=500)
+
+    if format == "csv":
+        if not events:
+            return StreamingResponse(
+                io.StringIO(""), media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=agent_metrics.csv"},
+            )
+        fieldnames = list(events[0].keys())
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(events)
+        buf.seek(0)
+        return StreamingResponse(
+            buf, media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=agent_metrics.csv"},
+        )
+
+    return {"status": "ok", "count": len(events), "events": events}

@@ -1,0 +1,113 @@
+{
+  "description": "Czasy manualnej obsługi incydentów – baseline do porównania z agentem. Wypełnij po ręcznym wykonaniu każdego scenariusza.",
+  "baselines": [
+    {
+      "scenario_id": "01",
+      "name": "npm CI failure – brak package-lock.json",
+      "category": "issue",
+      "manual_mttr_s": 420,
+      "manual_steps_count": 7,
+      "manual_resolver_role": "junior_devops",
+      "notes": "Diagnoza: sprawdzenie logu CI, rozpoznanie błędu npm, sprawdzenie repo, commit package-lock.json"
+    },
+    {
+      "scenario_id": "02",
+      "name": "bad probe config (PR)",
+      "category": "ci",
+      "manual_mttr_s": 600,
+      "manual_steps_count": 9,
+      "manual_resolver_role": "mid_devops",
+      "notes": "Diagnoza: analiza logu CI, identyfikacja złej konfiguracji probe w values, ręczna edycja YAML"
+    },
+    {
+      "scenario_id": "03",
+      "name": "request-rate spike",
+      "category": "alert",
+      "manual_mttr_s": 900,
+      "manual_steps_count": 12,
+      "manual_resolver_role": "senior_devops",
+      "notes": "Analiza Prometheus, korelacja z logami, decyzja o skalowaniu, ręczna edycja HPA lub kubectl scale"
+    },
+    {
+      "scenario_id": "04",
+      "name": "maven artifact not found",
+      "category": "issue",
+      "manual_mttr_s": 480,
+      "manual_steps_count": 8,
+      "manual_resolver_role": "mid_devops",
+      "notes": "Sprawdzenie Nexus/Maven repo, identyfikacja złej wersji zależności, poprawka pom.xml"
+    },
+    {
+      "scenario_id": "05",
+      "name": "wrong liveness probe port (PR)",
+      "category": "ci",
+      "manual_mttr_s": 540,
+      "manual_steps_count": 8,
+      "manual_resolver_role": "mid_devops",
+      "notes": "Analiza logu CI, znalezienie błędnego portu probe, porównanie z containerPort"
+    },
+    {
+      "scenario_id": "06",
+      "name": "reusable workflow env context error",
+      "category": "issue",
+      "manual_mttr_s": 660,
+      "manual_steps_count": 10,
+      "manual_resolver_role": "mid_devops",
+      "notes": "Analiza GitHub Actions YAML, zrozumienie ograniczenia env context w reusable workflows"
+    },
+    {
+      "scenario_id": "07",
+      "name": "OOMKilled (PR)",
+      "category": "ci",
+      "manual_mttr_s": 720,
+      "manual_steps_count": 11,
+      "manual_resolver_role": "senior_devops",
+      "notes": "Analiza kubectl describe pod, identify memory limits, update values.yaml resources.limits.memory"
+    },
+    {
+      "scenario_id": "08",
+      "name": "wrong datasource URL – localhost vs K8s DNS",
+      "category": "issue",
+      "manual_mttr_s": 300,
+      "manual_steps_count": 6,
+      "manual_resolver_role": "mid_devops",
+      "notes": "Sprawdzenie konfiguracji połączenia do bazy, zamiana localhost na FQDN serwisu K8s"
+    },
+    {
+      "scenario_id": "09",
+      "name": "orphaned resources cleanup",
+      "category": "issue",
+      "manual_mttr_s": 1200,
+      "manual_steps_count": 15,
+      "manual_resolver_role": "senior_devops",
+      "notes": "kubectl get all --all-namespaces, identyfikacja osieroconych zasobów, ostrożna czyszczenie"
+    },
+    {
+      "scenario_id": "10",
+      "name": "YAML conflict markers in PR",
+      "category": "ci",
+      "manual_mttr_s": 300,
+      "manual_steps_count": 5,
+      "manual_resolver_role": "junior_devops",
+      "notes": "Znalezienie markerów <<<<<<</=======/>>>>>>> w YAML, ręczna rozwiązanie konfliktu"
+    },
+    {
+      "scenario_id": "11",
+      "name": "latency spike – korelacja p99 + logi",
+      "category": "alert",
+      "manual_mttr_s": 1080,
+      "manual_steps_count": 14,
+      "manual_resolver_role": "senior_devops",
+      "notes": "Analiza Grafana p99, korelacja z Loki, diagnoza bottleneck, decyzja o mitigacji"
+    },
+    {
+      "scenario_id": "12",
+      "name": "wrong VirtualService host (Istio)",
+      "category": "ci",
+      "manual_mttr_s": 840,
+      "manual_steps_count": 12,
+      "manual_resolver_role": "senior_devops",
+      "notes": "Analiza Istio VirtualService YAML, zrozumienie host/namespace mismatch, poprawka"
+    }
+  ]
+}

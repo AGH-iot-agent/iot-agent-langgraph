@@ -430,6 +430,223 @@ def _infra_issue_plan(state: AgentState, request: str) -> list[PlanStep]:
     return plan
 
 
+def _quota_exceeded_plan(state: AgentState, request: str) -> list[PlanStep]:
+    """Plan for namespace_quota_exceeded events.
+
+    Collects:
+    1. Current ResourceQuota usage (which resource type is exhausted).
+    2. All pods — identify top consumers by count.
+    3. Prometheus top memory/CPU consumers — pinpoint over-requesting services.
+    4. Helm values from GitHub — fetch current resource requests to propose a fix.
+    """
+    context = state.get("context", {})
+    namespace = context.get("namespace", "iotag-dev")
+    repo = context.get("repo_full_name", "")
+
+    plan: list[PlanStep] = [
+        {
+            "tool": "kubernetes",
+            "action": "get_resource_quota",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "prometheus",
+            "action": "query",
+            "args": {
+                "query": (
+                    f'sort_desc(sum(container_memory_working_set_bytes{{namespace="{namespace}",container!=""}}) by (pod))'
+                ),
+            },
+        },
+        {
+            "tool": "prometheus",
+            "action": "query",
+            "args": {
+                "query": (
+                    f'sort_desc(sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}",container!=""}}[5m])) by (pod))'
+                ),
+            },
+        },
+    ]
+
+    if repo:
+        plan.append({
+            "tool": "github",
+            "action": "get_file_content",
+            "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": "main"},
+        })
+
+    return plan
+
+
+def _disk_pressure_plan(state: AgentState, request: str) -> list[PlanStep]:
+    """Plan for pvc_disk_pressure and node_disk_pressure events.
+
+    Collects:
+    1. PVC list with capacity/phase.
+    2. Node conditions (DiskPressure, MemoryPressure).
+    3. Prometheus storage metrics — PVC fill rate trend.
+    4. Pod logs from the affected service — look for write-error messages.
+    5. Kubernetes events — scheduling / eviction messages.
+    """
+    context = state.get("context", {})
+    namespace = context.get("namespace", "iotag-dev")
+    pvc = context.get("pvc", "")
+    node = context.get("node", "")
+    repo = context.get("repo_full_name", "")
+
+    plan: list[PlanStep] = [
+        {
+            "tool": "kubernetes",
+            "action": "get_pvc_usage",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_node_conditions",
+            "args": {},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
+        # PVC fill-rate trend (last 30 min)
+        {
+            "tool": "prometheus",
+            "action": "query_range",
+            "args": {
+                "query": (
+                    f'kubelet_volume_stats_used_bytes{{namespace="{namespace}"}}'
+                    f' / kubelet_volume_stats_capacity_bytes{{namespace="{namespace}"}}'
+                ),
+                "last_minutes": 30,
+            },
+        },
+        # Node filesystem free space
+        {
+            "tool": "prometheus",
+            "action": "query",
+            "args": {
+                "query": (
+                    'min by (instance, mountpoint) ('
+                    '  node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"}'
+                    '  / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"}'
+                    ')'
+                ),
+            },
+        },
+    ]
+
+    # Loki logs for write errors on the affected service
+    service = context.get("service", "")
+    if not service and pvc:
+        # Derive service name from PVC naming convention (e.g. data-iot-agent-logs-0 → iot-agent-logs)
+        service = pvc.rsplit("-", 1)[0] if "-" in pvc else pvc
+    if service:
+        plan.append({
+            "tool": "loki",
+            "action": "query_range",
+            "args": {
+                "namespace": namespace,
+                "service": service,
+                "last_minutes": 15,
+                "limit": 100,
+            },
+        })
+
+    if repo:
+        plan.append({
+            "tool": "github",
+            "action": "get_file_content",
+            "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": "main"},
+        })
+
+    return plan
+
+
+def _oomkilled_plan(state: AgentState, request: str) -> list[PlanStep]:
+    """Plan for k8s_pod_oomkilled events.
+
+    Collects:
+    1. Full pod describe — confirms OOMKilled exit code, current memory limit.
+    2. JVM heap usage trend (30 min) from Prometheus — distinguishes leak vs low limit.
+    3. Pod logs (last 200 lines) — look for OutOfMemoryError / GC overhead messages.
+    4. Cluster events — shows OOMKilling reason message.
+    5. Helm values from GitHub — contains current limits.memory to propose a fix.
+    """
+    context = state.get("context", {})
+    namespace = context.get("namespace", "iotag-dev")
+    pod_info = context.get("pod", {})
+    pod_name = pod_info.get("name", "") if isinstance(pod_info, dict) else str(pod_info)
+    repo = context.get("repo_full_name", "")
+
+    # Infer service name from pod name (strip replica-set suffix: name-<rs>-<pod>)
+    parts = pod_name.rsplit("-", 2)
+    service = parts[0] if len(parts) >= 3 else pod_name
+
+    plan: list[PlanStep] = [
+        {
+            "tool": "kubernetes",
+            "action": "describe_pod",
+            "args": {"pod_name": pod_name, "namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_pod_logs",
+            "args": {"namespace": namespace, "pod": pod_name, "tail": 200},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
+        # JVM heap trend — critical to distinguish memory leak from underprovisioned limit
+        {
+            "tool": "prometheus",
+            "action": "query_range",
+            "args": {
+                "query": (
+                    f'jvm_memory_used_bytes{{area="heap",namespace="{namespace}"}}'
+                    f' / jvm_memory_max_bytes{{area="heap",namespace="{namespace}"}}'
+                ),
+                "last_minutes": 30,
+            },
+        },
+        # Container memory working set trend
+        {
+            "tool": "prometheus",
+            "action": "query_range",
+            "args": {
+                "query": (
+                    f'container_memory_working_set_bytes{{namespace="{namespace}",'
+                    f'pod=~"{service}.*",container!=""}}'
+                ),
+                "last_minutes": 30,
+            },
+        },
+    ]
+
+    if repo:
+        plan.append({
+            "tool": "github",
+            "action": "get_file_content",
+            "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": "main"},
+        })
+
+    return plan
+
+
 def _extract_search_terms(issue_body: str) -> list[str]:
     import re
     terms = []
@@ -470,6 +687,12 @@ def planner_node(state: AgentState) -> AgentState:
         plan = _orphaned_resource_plan(state, request)
     elif event_kind in ("istio_vs_misconfiguration",):
         plan = _kubernetes_plan(state, request)
+    elif event_kind == "namespace_quota_exceeded":
+        plan = _quota_exceeded_plan(state, request)
+    elif event_kind in ("pvc_disk_pressure", "node_disk_pressure"):
+        plan = _disk_pressure_plan(state, request)
+    elif event_kind == "k8s_pod_oomkilled":
+        plan = _oomkilled_plan(state, request)
     elif _contains_any(routing_text, ("github actions", "workflow", "ci/cd", "build", "job", "pipeline", "artifact", "ci failure")):
         plan = _github_actions_plan(state, request)
     elif _contains_any(routing_text, ("pod", "rollout", "deploy", "deployment", "restart", "kubectl", "k8s", "klaster")):

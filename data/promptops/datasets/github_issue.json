@@ -1,0 +1,137 @@
+{
+  "event_kind": "github_issue",
+  "description": "Przypadki testowe dla GitHub Issues zgłaszanych przez użytkowników – błędy infrastruktury, konfiguracji, CI",
+  "cases": [
+    {
+      "case_id": "issue001",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-login-screen",
+        "issue_number": 42,
+        "title": "Infrastructure CI failure: 'npm ci' fails with 'ENOENT: no such file or directory, open package-lock.json'",
+        "body": "The CI pipeline fails during the npm ci step.\n\nError:\n```\nnpm error code ENOENT\nnpm error syscall open\nnpm error path /home/runner/work/iot-agent-login-screen/iot-agent-login-screen/package-lock.json\nnpm error errno -2\nnpm error enoent ENOENT: no such file or directory, open 'package-lock.json'\n```\n\nThis happens on every PR. The project builds locally.",
+        "labels": ["bug", "iot-devops-agent"]
+      },
+      "expected_indicators": [
+        "package-lock.json",
+        "npm install",
+        "commit"
+      ],
+      "forbidden_indicators": [
+        "yarn.lock",
+        "pnpm",
+        "docker"
+      ],
+      "expected_tools": ["github_get_file_content", "github_list_directory"],
+      "max_tool_rounds": 5,
+      "metadata": {"scenario": "01", "source": "scenario_01"}
+    },
+    {
+      "case_id": "issue002",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-device-api",
+        "issue_number": 15,
+        "title": "Maven build failure: artifact 'iot-agent-common:1.5.3' not found in Nexus",
+        "body": "CI pipeline fails with:\n```\n[ERROR] Failed to execute goal on project iot-agent-device-api: \nCould not resolve dependencies for project AGH-iot-agent:iot-agent-device-api:jar:0.0.1-SNAPSHOT: \nFailed to collect dependencies at AGH-iot-agent:iot-agent-common:jar:1.5.3: \nFailed to read artifact descriptor for AGH-iot-agent:iot-agent-common:jar:1.5.3: \nCould not find artifact AGH-iot-agent:iot-agent-common:jar:1.5.3 in nexus\n```",
+        "labels": ["bug", "iot-devops-agent"]
+      },
+      "expected_indicators": [
+        "iot-agent-common",
+        "1.5.3",
+        "pom.xml",
+        "version"
+      ],
+      "forbidden_indicators": [
+        "npm",
+        "package.json",
+        "docker"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 5,
+      "metadata": {"scenario": "04", "source": "scenario_04"}
+    },
+    {
+      "case_id": "issue003",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-gateway-api",
+        "issue_number": 88,
+        "title": "Reusable workflow fails: env context not available in 'with' block",
+        "body": "The GitHub Actions reusable workflow fails with:\n```\nThe workflow is not valid. .github/workflows/deploy.yml (Line: 24, Col: 16): \nContext access might be invalid: env.IMAGE_TAG\n```\nWe are trying to pass `${{ env.IMAGE_TAG }}` in the `with:` block of a reusable workflow call.",
+        "labels": ["bug", "iot-devops-agent", "github-actions"]
+      },
+      "expected_indicators": [
+        "env context",
+        "with:",
+        "inputs",
+        "vars"
+      ],
+      "forbidden_indicators": [
+        "kubectl",
+        "helm",
+        "kubernetes"
+      ],
+      "expected_tools": ["github_get_file_content"],
+      "max_tool_rounds": 4,
+      "metadata": {"scenario": "06", "source": "scenario_06"}
+    },
+    {
+      "case_id": "issue004",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-dashboard-api",
+        "issue_number": 33,
+        "title": "Service cannot connect to PostgreSQL: 'Connection refused' on localhost:5432",
+        "body": "The microservice iot-agent-dashboard-api fails to start in K8s:\n```\norg.postgresql.util.PSQLException: Connection to localhost:5432 refused. \nCheck that the hostname and port are correct and that the postmaster is accepting TCP/IP connections.\n```\nThe database service is deployed as 'postgresql-service' in namespace 'iotag-dev'.",
+        "labels": ["bug", "iot-devops-agent"]
+      },
+      "expected_indicators": [
+        "localhost",
+        "postgresql-service",
+        "iotag-dev",
+        "FQDN",
+        "kubernetes"
+      ],
+      "forbidden_indicators": [
+        "npm",
+        "package.json",
+        "maven"
+      ],
+      "expected_tools": ["github_get_file_content", "k8s_get_resource"],
+      "max_tool_rounds": 5,
+      "metadata": {"scenario": "08", "source": "scenario_08"}
+    },
+    {
+      "case_id": "issue005",
+      "event_kind": "github_issue",
+      "input_event": {
+        "kind": "github_issue",
+        "repo_full_name": "AGH-iot-agent/iot-agent-infra",
+        "issue_number": 101,
+        "title": "Orphaned ConfigMaps and Secrets after namespace cleanup",
+        "body": "After removing the 'iot-agent-stream-worker' deployment we found orphaned resources:\n- ConfigMap 'stream-worker-config' still exists in iotag-dev\n- Secret 'stream-worker-db-secret' still exists in iotag-dev\nThese may cause confusion or security issues. Please audit and remove safely.",
+        "labels": ["cleanup", "iot-devops-agent", "security"]
+      },
+      "expected_indicators": [
+        "orphaned",
+        "configmap",
+        "secret",
+        "kubectl delete",
+        "audit"
+      ],
+      "forbidden_indicators": [
+        "npm",
+        "maven",
+        "force delete namespace"
+      ],
+      "expected_tools": ["k8s_get_resource", "k8s_list_resources"],
+      "max_tool_rounds": 6,
+      "metadata": {"scenario": "09", "source": "scenario_09"}
+    }
+  ]
+}

@@ -447,6 +447,98 @@ class K8sAdapter:
 
         raise RuntimeError(f"unsupported or missing Helm chart source: {chart}")
 
+    def get_resource_quota(self, namespace: str = "default") -> dict[str, Any]:
+        """Return ResourceQuota usage and hard limits for the given namespace."""
+        cmd = ["kubectl", "get", "resourcequota", "-n", namespace, "-o", "json"]
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            rq_json = json.loads(result.stdout)
+            quotas = []
+            for item in rq_json.get("items", []):
+                hard = item.get("status", {}).get("hard", {})
+                used = item.get("status", {}).get("used", {})
+                resources: list[dict] = []
+                for resource, hard_val in hard.items():
+                    used_val = used.get(resource, "0")
+                    resources.append({
+                        "resource": resource,
+                        "hard": hard_val,
+                        "used": used_val,
+                    })
+                quotas.append({
+                    "name": item["metadata"]["name"],
+                    "namespace": namespace,
+                    "resources": resources,
+                })
+            return {"status": "ok", "quotas": quotas, "namespace": namespace}
+        except Exception as e:
+            logger.exception("Exception in get_resource_quota for namespace %s", namespace)
+            return {"status": "error", "message": str(e)}
+
+    def get_pvc_usage(self, namespace: str = "default") -> dict[str, Any]:
+        """Return PersistentVolumeClaim list with capacity and access modes for the namespace."""
+        cmd = ["kubectl", "get", "pvc", "-n", namespace, "-o", "json"]
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            pvc_json = json.loads(result.stdout)
+            pvcs = []
+            for item in pvc_json.get("items", []):
+                spec = item.get("spec", {})
+                status = item.get("status", {})
+                pvcs.append({
+                    "name": item["metadata"]["name"],
+                    "namespace": namespace,
+                    "phase": status.get("phase", ""),
+                    "storage_class": spec.get("storageClassName", ""),
+                    "access_modes": spec.get("accessModes", []),
+                    "capacity_requested": spec.get("resources", {}).get("requests", {}).get("storage", ""),
+                    "capacity_actual": status.get("capacity", {}).get("storage", ""),
+                    "volume_name": spec.get("volumeName", ""),
+                })
+            return {"status": "ok", "pvcs": pvcs, "namespace": namespace}
+        except Exception as e:
+            logger.exception("Exception in get_pvc_usage for namespace %s", namespace)
+            return {"status": "error", "message": str(e)}
+
+    def get_node_conditions(self) -> dict[str, Any]:
+        """Return node conditions (DiskPressure, MemoryPressure, PIDPressure, Ready) for all nodes."""
+        cmd = ["kubectl", "get", "nodes", "-o", "json"]
+        logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            nodes_json = json.loads(result.stdout)
+            nodes = []
+            pressure_types = {"DiskPressure", "MemoryPressure", "PIDPressure", "Ready"}
+            for node in nodes_json.get("items", []):
+                conditions = {
+                    c["type"]: c["status"]
+                    for c in node.get("status", {}).get("conditions", [])
+                    if c["type"] in pressure_types
+                }
+                allocatable = node.get("status", {}).get("allocatable", {})
+                nodes.append({
+                    "name": node["metadata"]["name"],
+                    "conditions": conditions,
+                    "allocatable_cpu": allocatable.get("cpu", ""),
+                    "allocatable_memory": allocatable.get("memory", ""),
+                    "allocatable_pods": allocatable.get("pods", ""),
+                })
+            return {"status": "ok", "nodes": nodes}
+        except Exception as e:
+            logger.exception("Exception in get_node_conditions")
+            return {"status": "error", "message": str(e)}
+
     def helm_template_render(self, name: str, chart: str, values_override: str = "") -> dict[str, Any]:
         """Render a Helm chart with optional values override (YAML string).
 

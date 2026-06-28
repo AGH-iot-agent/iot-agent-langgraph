@@ -34,6 +34,9 @@ def _build_registry() -> dict[str, Any]:
             "apply_manifest_dryrun": k8s.apply_manifest_dryrun,
             "helm_template_render":  k8s.helm_template_render,
             "helm_validate_deployability": k8s.helm_validate_deployability,
+            "get_resource_quota":    k8s.get_resource_quota,
+            "get_pvc_usage":         k8s.get_pvc_usage,
+            "get_node_conditions":   k8s.get_node_conditions,
         },
         "prometheus": {
             "query":                prom.query,

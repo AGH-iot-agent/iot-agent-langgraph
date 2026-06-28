@@ -52,6 +52,12 @@ def _build_system_prompt(event_kind: str, trace_id: str | None = None) -> str:
 			return core + p("k8s", "") + "\n\n" + p("istio", "")
 		case "request_rate_spike" | "high_cpu_usage" | "high_http_latency" | "high_error_rate" | "loki_error_spike":
 			return core + p("observability", "") + "\n\n" + p("scalability", "")
+		case "namespace_quota_exceeded":
+			return core + p("resource_quota", "") + "\n\n" + p("helm_values", "")
+		case "pvc_disk_pressure" | "node_disk_pressure":
+			return core + p("disk_pressure", "") + "\n\n" + p("k8s", "")
+		case "k8s_pod_oomkilled":
+			return core + p("oom_response", "") + "\n\n" + p("helm_values", "") + "\n\n" + p("observability", "")
 		case _:
 			return core + p("k8s", "")
 
