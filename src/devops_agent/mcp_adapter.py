@@ -37,6 +37,7 @@ def _build_registry() -> dict[str, Any]:
             "get_resource_quota":    k8s.get_resource_quota,
             "get_pvc_usage":         k8s.get_pvc_usage,
             "get_node_conditions":   k8s.get_node_conditions,
+            "list_secrets":          k8s.list_secrets,
         },
         "prometheus": {
             "query":                prom.query,
@@ -54,6 +55,8 @@ def _build_registry() -> dict[str, Any]:
             "get_pull_request":     gh.get_pull_request,
             "list_issues":          gh.list_issues,
             "get_issue":            gh.get_issue,
+            "create_issue":         gh.create_issue,
+            "update_issue":         gh.update_issue,
             "create_issue_comment": gh.create_issue_comment,
             "list_workflows":       gh.list_workflows,
             "get_workflow_runs":    gh.get_workflow_runs,
@@ -65,6 +68,9 @@ def _build_registry() -> dict[str, Any]:
             "get_branch_sha":       gh.get_branch_sha,
             "create_branch":        gh.create_branch,
             "commit_file":          gh.commit_file,
+            "delete_issue_comment": gh.delete_issue_comment,
+            "close_pull_request":   gh.close_pull_request,
+            "delete_branch":        gh.delete_branch,
         },
     }
 
@@ -99,6 +105,12 @@ class MCPAdapter:
         try:
             fn = self._registry[service][tool]
         except KeyError:
+            logger.error(
+                "MCPAdapter.run unknown tool service=%s tool=%s params_keys=%s",
+                service,
+                tool,
+                sorted(list(params.keys())),
+            )
             _record("error")
             return {"status": "error", "message": f"Unknown tool: {service}/{tool}"}
 
@@ -141,6 +153,11 @@ class MCPAdapter:
                 logger.warning("MCPAdapter.run: %s/%s — service unreachable (%s)", service, tool, exc)
                 _record("error")
             else:
-                logger.exception("MCPAdapter.run failed: %s/%s", service, tool)
+                logger.exception(
+                    "MCPAdapter.run failed: %s/%s params_keys=%s",
+                    service,
+                    tool,
+                    sorted(list(params.keys())),
+                )
                 _record("error")
             return {"status": "error", "message": str(exc)}

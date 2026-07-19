@@ -4,10 +4,14 @@ import io
 import logging
 import os
 import time
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -16,15 +20,17 @@ from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
 from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor, ResourceQuotaMonitor, DiskPressureMonitor
 from devops_agent.metrics import agent_metrics, load_manual_baselines
+from devops_agent.preflight import log_runtime_preflight, runtime_preflight_report
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 load_dotenv(".env") 
 
 class RunRequest(BaseModel):
     request: str = Field(..., min_length=3)
-    dry_run: bool = True
+    dry_run: bool = False
     max_revisions: int = 2
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -54,6 +60,16 @@ MONITOR_FLAGS = {
     "loki":             _flag("MONITOR_LOKI"),
     "k8s":              _flag("MONITOR_K8S"),
 }
+
+FORCE_BOOT_AUTOSTART = _flag("IOTAG_FORCE_BOOT_AUTOSTART", default=True)
+FORCE_BOOT_MONITOR = _flag("IOTAG_FORCE_BOOT_MONITOR", default=True)
+
+AUTOAPPLY_ENABLED = _flag("AGENT_AUTOAPPLY", default=False)
+if AUTOAPPLY_ENABLED and (KUBERNETES_NAMESPACE or "") != "iotag-dev":
+    logger.error(
+        "AGENT_AUTOAPPLY=true is only allowed when KUBERNETES_NAMESPACE=iotag-dev. Current namespace=%s",
+        KUBERNETES_NAMESPACE,
+    )
 
 monitors = []
 active_monitors: list[str] = []
@@ -92,6 +108,13 @@ elif MONITOR_FLAGS["k8s"]:
     monitors.append(DiskPressureMonitor(adapter=mcp_adapter, namespace=KUBERNETES_NAMESPACE))
     active_monitors.append("disk_pressure")
 
+if FORCE_BOOT_MONITOR and not monitors and ORG_NAME:
+    logger.warning(
+        "No monitors enabled; forcing GitHub issue monitor for bootstrap mode."
+    )
+    monitors.append(GitHubIssueMonitor(adapter=mcp_adapter, org=ORG_NAME))
+    active_monitors.append("github_issues_forced_boot")
+
 logger.info("Active monitors: %s", active_monitors)
 
 watchdog = AgentWatchdog(
@@ -100,9 +123,17 @@ watchdog = AgentWatchdog(
     monitors = monitors,
 )
 
+runtime_preflight = runtime_preflight_report()
+log_runtime_preflight(runtime_preflight)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.environ.get("IOTAG_WATCHDOG_AUTOSTART", "true").lower() == "true":
+    autostart_enabled = _flag("IOTAG_WATCHDOG_AUTOSTART", default=True)
+    if autostart_enabled or FORCE_BOOT_AUTOSTART:
+        if not autostart_enabled and FORCE_BOOT_AUTOSTART:
+            logger.warning(
+                "IOTAG_WATCHDOG_AUTOSTART is false, but bootstrap mode forces autostart."
+            )
         cfg = WatchdogConfig(
             namespace                = KUBERNETES_NAMESPACE or "iotag-dev",
             interval_seconds         = INTERVAL_SECONDS,
@@ -128,6 +159,105 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="iot-agent-langgraph", version="0.1.0", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    trace_id = request.headers.get("x-trace-id") or f"http-{uuid4()}"
+    request.state.trace_id = trace_id
+    started_at = time.time()
+    logger.info(
+        "[HTTP] start method=%s path=%s trace_id=%s",
+        request.method,
+        request.url.path,
+        trace_id,
+    )
+    try:
+        response = await call_next(request)
+        latency_ms = round((time.time() - started_at) * 1000.0, 2)
+        response.headers["X-Trace-Id"] = trace_id
+        logger.info(
+            "[HTTP] end method=%s path=%s status=%s latency_ms=%s trace_id=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            latency_ms,
+            trace_id,
+        )
+        return response
+    except Exception:
+        logger.exception(
+            "[HTTP] unhandled method=%s path=%s trace_id=%s",
+            request.method,
+            request.url.path,
+            trace_id,
+        )
+        raise
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    trace_id = getattr(request.state, "trace_id", f"validation-{uuid4()}")
+    logger.warning(
+        "[HTTP] validation_error path=%s trace_id=%s errors=%s",
+        request.url.path,
+        trace_id,
+        exc.errors(),
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"status": "error", "trace_id": trace_id, "detail": exc.errors()},
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    trace_id = getattr(request.state, "trace_id", f"http-exc-{uuid4()}")
+    logger.error(
+        "[HTTP] http_exception path=%s status=%s trace_id=%s detail=%s",
+        request.url.path,
+        exc.status_code,
+        trace_id,
+        exc.detail,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "trace_id": trace_id, "detail": exc.detail},
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    trace_id = getattr(request.state, "trace_id", f"unhandled-{uuid4()}")
+    logger.exception(
+        "[HTTP] fatal_exception path=%s trace_id=%s",
+        request.url.path,
+        trace_id,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "trace_id": trace_id,
+            "detail": "Internal server error. Check logs with this trace_id.",
+        },
+    )
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    try:
+        app.openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        return app.openapi_schema
+    except Exception:
+        logger.exception("[OPENAPI] Failed to generate OpenAPI schema")
+        raise
+
+
+app.openapi = _custom_openapi
+
 @app.get("/watch/monitors")
 def watch_monitors() -> dict[str, Any]:
     """Returns which monitors are currently active and their feature flags."""
@@ -150,8 +280,11 @@ def watch_monitors() -> dict[str, Any]:
     }
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok" if runtime_preflight["ok"] else "degraded",
+        "runtime_preflight": runtime_preflight,
+    }
 
 @app.post("/run")
 def run_agent(payload: RunRequest) -> dict:
@@ -160,15 +293,31 @@ def run_agent(payload: RunRequest) -> dict:
         payload.request, payload.dry_run, payload.max_revisions,
     )
 
+    trace_id = str(payload.context.get("trace_id") or f"manual-{uuid4()}")
+    run_context = dict(payload.context)
+    run_context["trace_id"] = trace_id
+
     initial_state = {
+        "trace_id": trace_id,
         "request": payload.request,
         "dry_run": payload.dry_run,
         "revision_count": 0,
         "max_revisions": payload.max_revisions,
-        "context": payload.context,
+        "context": run_context,
     }
     started_at = time.time()
-    result = compiled_graph.invoke(initial_state)
+    try:
+        result = compiled_graph.invoke(initial_state)
+    except Exception as exc:
+        logger.exception("Run agent failed: trace_id=%s", trace_id)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Agent execution failed",
+                "trace_id": trace_id,
+                "error": str(exc),
+            },
+        )
     token_usage = result.get("token_usage") or {}
     input_tokens = int(token_usage.get("input_tokens", 0))
     output_tokens = int(token_usage.get("output_tokens", 0))
@@ -176,9 +325,9 @@ def run_agent(payload: RunRequest) -> dict:
     validation = result.get("validation_result") or {}
     agent_metrics.record(
         {
-            "trace_id": str(payload.context.get("trace_id", "manual-run")),
+            "trace_id": trace_id,
             "event_kind": str(result.get("event_kind", "manual_run")),
-            "repo": str(payload.context.get("repo_full_name", "")),
+            "repo": str(run_context.get("repo_full_name", "")),
             "title": payload.request,
             "mttr_s": time.time() - started_at,
             "plan_step_count": len(plan),
@@ -193,7 +342,6 @@ def run_agent(payload: RunRequest) -> dict:
     )
     logger.info("Run agent result: %s", result)
 
-    # Surface security metadata to the caller without exposing raw violations
     security_violations = result.get("security_violations") or []
     security_blocked = bool(result.get("security_blocked", False))
     if security_violations:
@@ -206,7 +354,6 @@ def run_agent(payload: RunRequest) -> dict:
     response["security"] = {
         "blocked": security_blocked,
         "violation_count": len(security_violations),
-        # Expose threat types only — never echo matched patterns back to caller
         "threat_types": list({v.get("threat_type") for v in security_violations}),
     }
     return response
@@ -220,7 +367,9 @@ def watch_start(payload: WatchStartRequest) -> dict[str, Any]:
 
     result = watchdog.start(
         WatchdogConfig(
-            interval_seconds=INTERVAL_SECONDS,
+            namespace=payload.namespace,
+            interval_seconds=payload.interval_seconds,
+            monitor_github=payload.monitor_github,
             issue_max_age_s=86400,
         )
     )
@@ -246,22 +395,18 @@ def watch_alerts(limit: int = 50) -> dict[str, Any]:
     logger.info("Watchdog alerts: %d alerts returned", len(alerts))
     return {"status": "ok", "alerts": alerts}
 
-
 @app.get("/metrics/events")
 def metrics_events(limit: int = 50) -> dict[str, Any]:
     limit = max(1, min(limit, 500))
     return {"status": "ok", "events": agent_metrics.list_events(limit=limit)}
 
-
 @app.get("/metrics/summary")
 def metrics_summary() -> dict[str, Any]:
     return {"status": "ok", "summary": agent_metrics.summary()}
 
-
 @app.get("/metrics/adapters")
 def metrics_adapters() -> dict[str, Any]:
     return {"status": "ok", "summary": agent_metrics.adapter_summary()}
-
 
 @app.get("/metrics/comparison")
 def metrics_comparison() -> dict[str, Any]:
@@ -271,7 +416,6 @@ def metrics_comparison() -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     for b in baselines.values():
-        # Dopasuj event po tytule/kontekście jeśli możliwe; fallback: brak danych
         agent_mttr: float | None = None
         agent_tokens: int | None = None
         for ev in events:

@@ -11,6 +11,7 @@ src/devops_agent/mcp_adapter.py
 src/devops_agent/mcp_runner.py
 src/devops_agent/mcp_server.py
 src/devops_agent/metrics.py
+src/devops_agent/preflight.py
 src/devops_agent/security.py
 src/devops_agent/state.py
 src/devops_agent/watchdog.py
@@ -22,6 +23,7 @@ src/devops_agent/adapters/prometheus_adapter.py
 src/devops_agent/guardrails/guardrails.py
 src/devops_agent/monitors/__init__.py
 src/devops_agent/monitors/base.py
+src/devops_agent/monitors/disk_pressure.py
 src/devops_agent/monitors/github_ci_failure.py
 src/devops_agent/monitors/github_issues.py
 src/devops_agent/monitors/github_pr_build_monitor.py
@@ -29,6 +31,7 @@ src/devops_agent/monitors/github_prs.py
 src/devops_agent/monitors/k3s_health.py
 src/devops_agent/monitors/loki_errors.py
 src/devops_agent/monitors/prometheus_metrics.py
+src/devops_agent/monitors/resource_quota.py
 src/devops_agent/nodes/ci_fixer.py
 src/devops_agent/nodes/critic.py
 src/devops_agent/nodes/executor.py
@@ -59,3 +62,5 @@ src/iot_agent_langgraph.egg-info/dependency_links.txt
 src/iot_agent_langgraph.egg-info/entry_points.txt
 src/iot_agent_langgraph.egg-info/requires.txt
 src/iot_agent_langgraph.egg-info/top_level.txt
+tests/test_guardrails.py
+tests/test_preflight.py

@@ -5,14 +5,14 @@
 **Failing run:** https://github.com/AGH-iot-agent/iot-agent-login-screen/actions/runs/9876543
 
 ### Root Cause
-YAML indentation error in livenessProbe section
+YAML indentation error under livenessProbe
 
 **Error message:**
 ```
-error converting YAML to JSON: yaml: line 42: mapping values are not allowed here (livenessProbe key)
+YAML parse error on Helm/values-sbx.yaml: error converting YAML to JSON: yaml: line 42: mapping values are not allowed here (livenessProbe key)
 ```
 
-The Helm chart failed to parse due to incorrect indentation in the livenessProbe section. This caused the YAML parser to throw an error, preventing the deployment from proceeding.
+The livenessProbe section is incorrectly indented, causing a YAML parsing error.
 
 ### Changed Files
 - `Helm/values-sbx.yaml`
@@ -21,16 +21,7 @@ The Helm chart failed to parse due to incorrect indentation in the livenessProbe
 <summary><code>Helm/values-sbx.yaml</code></summary>
 
 ```diff
---- a/Helm/values-sbx.yaml+++ b/Helm/values-sbx.yaml@@ -1,8 +1,7 @@ # Default values for a "deployment"
- 
- # REQUIRED for you to set a value here, name of your service
--name: ""
--
-+name: "iot-agent-login-screen"
- # Number of pods in deployment, default of not highly available (override on HA environments)
- replicaCount: 1
- 
-@@ -218,13 +217,13 @@ 
+--- a/Helm/values-sbx.yaml+++ b/Helm/values-sbx.yaml@@ -218,26 +218,26 @@ 
  # livenessProbes are used to determine when to restart a container
  livenessProbe:
 -enabled: true
@@ -40,6 +31,19 @@ The Helm chart failed to parse due to incorrect indentation in the livenessProbe
 -timeoutSeconds: 9
 -successThreshold: 1
 -failureThreshold: 3
+-
+-# Specify either httpGet, tcpSocket or exec
+-# httpGet uses scheme, path and port (below)
+-# tcpSocket uses port (below)
+-# exec uses command (below)
+-probeType: httpGet
+-
+-# parameters for probes
+-scheme: HTTP
+-path: /
+-port: default-service
+-command:
+-  - ls -la /
 +  enabled: true
 +  # For the liveness probe we'll wait a full 2 minutes, just incase this service takes a while to start-up
 +  initialDelaySeconds: 120
@@ -47,9 +51,22 @@ The Helm chart failed to parse due to incorrect indentation in the livenessProbe
 +  timeoutSeconds: 9
 +  successThreshold: 1
 +  failureThreshold: 3
++
++  # Specify either httpGet, tcpSocket or exec
++  # httpGet uses scheme, path and port (below)
++  # tcpSocket uses port (below)
++  # exec uses command (below)
++  probeType: httpGet
++
++  # parameters for probes
++  scheme: HTTP
++  path: /
++  port: default-service
++  command:
++    - ls -la /
  
- # Specify either httpGet, tcpSocket or exec
- # httpGet uses scheme, path and port (below)
+ 
+ # readinessProbes are used to determine when a container is ready to start accepting traffic
 
 ```
 
@@ -60,7 +77,7 @@ Status: passed
 
 ```
 validator preflight OK: chart source is smb URI (smb://192.168.191.208/localshare/iot-agent/helm-charts/iot-agent-login-screen/deployment-1.0.0-test.tgz)
-validator preflight OK: kubernetes reachable for namespace iotag-dev
+validator preflight OK: kubernetes reachable for namespace iotag-sbx
 helm deployability validation OK for Helm/values-sbx.yaml
 
 ```
@@ -79,7 +96,7 @@ Attempts used: 1/3
 **Output**
 ```
 validator preflight OK: chart source is smb URI (smb://192.168.191.208/localshare/iot-agent/helm-charts/iot-agent-login-screen/deployment-1.0.0-test.tgz)
-validator preflight OK: kubernetes reachable for namespace iotag-dev
+validator preflight OK: kubernetes reachable for namespace iotag-sbx
 helm deployability validation OK for Helm/values-sbx.yaml
 ```
 </details>

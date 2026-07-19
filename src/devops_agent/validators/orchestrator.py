@@ -6,6 +6,33 @@ from devops_agent.validators.file_roles import classify_file_role
 from devops_agent.validators.helm_rules import validate_helm_values_file
 from devops_agent.validators.manifest_rules import validate_manifest_content
 
+import yaml
+from yaml.parser import ParserError
+from yaml.scanner import ScannerError
+
+def validate_yaml_content(content: str, path: str) -> list[str]:
+    errors: list[str] = []
+
+    try:
+        list(yaml.safe_load_all(content))
+    except ScannerError as exc:
+        mark = exc.problem_mark
+        errors.append(
+            f"{path}: invalid YAML syntax at line {mark.line + 1}, "
+            f"column {mark.column + 1}: {exc.problem}"
+        )
+    except ParserError as exc:
+        mark = exc.problem_mark
+        errors.append(
+            f"{path}: YAML parser error at line {mark.line + 1}, "
+            f"column {mark.column + 1}: {exc.problem}"
+        )
+    except Exception as exc:
+        errors.append(
+            f"{path}: YAML validation failed: {exc}"
+        )
+
+    return errors
 
 def _validate_file_entry(
     adapter,
@@ -30,6 +57,18 @@ def _validate_file_entry(
         return [f"{path}: empty content - skipping"], [], detail
 
     if role == "helm_values":
+        yaml_errors = validate_yaml_content(content, path)
+
+        if yaml_errors:
+            detail.update({
+                "status": "error",
+                "patchable": True,
+                "patch_reason": "invalid_yaml",
+                "rules": ["yaml_parse", "helm_deployability"],
+                "errors": yaml_errors,
+            })
+            return yaml_errors, [], detail
+        
         errors, outputs, patch_meta = validate_helm_values_file(
             adapter,
             path=path,

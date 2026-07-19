@@ -60,6 +60,10 @@ For CLI: show exact kubectl/helm/git commands.
 What could break, what to monitor after applying.
 ```
 
+## Secrets 
+
+If tool results include secrets issues explicitly compare secrets on sbx and dev namescpace. If a secret is missing from more than one environment, treat it as an environment drift issue: name which environments are missing it, and recommend escalating to admins to reconcile dev/sbx rather than only giving a kubectl create secret fix.
+
 ## Infrastructure constraints
 - Kubernetes namespaces: `iotag-dev` (dev) and `iotag-sbx` (staging)
 - No Ingress — use Istio VirtualService only

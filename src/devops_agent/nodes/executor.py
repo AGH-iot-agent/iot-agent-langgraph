@@ -13,7 +13,6 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
-
 from devops_agent.prompts import _build_system_prompt
 
 
@@ -71,10 +70,16 @@ def _is_meaningful_result(result_entry: dict[str, Any]) -> bool:
     return True
 
 
+_NOISY_KUBERNETES_ACTIONS_FOR_ISSUES = {"get_pods", "get_events"}
+
 def _filter_meaningful_results(raw_results: list[dict[str, Any]], event_kind: str) -> list[dict[str, Any]]:
     meaningful_results = [result for result in raw_results if _is_meaningful_result(result)]
     if event_kind == "github_issue":
-        meaningful_results = [result for result in meaningful_results if result.get("tool") != "kubernetes"]
+        meaningful_results = [
+            result for result in meaningful_results
+            if result.get("tool") != "kubernetes"
+            or result.get("action") not in _NOISY_KUBERNETES_ACTIONS_FOR_ISSUES
+        ]
     return meaningful_results
 
 
@@ -114,7 +119,7 @@ def _build_messages(state: AgentState, results_block: str) -> list[Any]:
     ]
 
 
-def _run_tool_call_rounds(ai_response: AIMessage) -> tuple[AIMessage, int, list[Any]]:
+def _run_tool_call_rounds(ai_response: AIMessage, trace_id: str) -> tuple[AIMessage, int, list[Any]]:
     messages: list[Any] = []
     tool_call_rounds = 0
 
@@ -132,8 +137,15 @@ def _run_tool_call_rounds(ai_response: AIMessage) -> tuple[AIMessage, int, list[
                 try:
                     tool_result = matched.invoke(fn_args)
                 except Exception as exc:
+                    logger.exception(
+                        "[EXECUTOR] Tool call failed tool=%s round=%s trace_id=%s",
+                        fn_name,
+                        tool_call_rounds,
+                        trace_id,
+                    )
                     tool_result = {"status": "error", "message": str(exc)}
             else:
+                logger.error("[EXECUTOR] Unknown tool requested by model: %s", fn_name)
                 tool_result = {"status": "error", "message": f"Unknown tool: {fn_name}"}
 
             messages.append(ToolMessage(
@@ -144,6 +156,25 @@ def _run_tool_call_rounds(ai_response: AIMessage) -> tuple[AIMessage, int, list[
         ai_response = _invoke_with_retry(_get_llm_with_tools(), messages)
 
     return ai_response, tool_call_rounds, messages
+
+
+def _extract_token_usage(ai_response: AIMessage) -> dict[str, int]:
+    input_tokens = 0
+    output_tokens = 0
+
+    usage_meta = getattr(ai_response, "usage_metadata", None) or {}
+    if isinstance(usage_meta, dict):
+        input_tokens = int(usage_meta.get("input_tokens") or usage_meta.get("prompt_tokens") or 0)
+        output_tokens = int(usage_meta.get("output_tokens") or usage_meta.get("completion_tokens") or 0)
+
+    if input_tokens == 0 and output_tokens == 0:
+        response_meta = getattr(ai_response, "response_metadata", None) or {}
+        token_usage = response_meta.get("token_usage") if isinstance(response_meta, dict) else None
+        if isinstance(token_usage, dict):
+            input_tokens = int(token_usage.get("prompt_tokens") or token_usage.get("input_tokens") or 0)
+            output_tokens = int(token_usage.get("completion_tokens") or token_usage.get("output_tokens") or 0)
+
+    return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
 def executor_node(state: AgentState) -> AgentState:
     plan: list[dict[str, Any]] = state.get("plan", [])
@@ -166,8 +197,18 @@ def executor_node(state: AgentState) -> AgentState:
 
     ai_response: AIMessage = _invoke_with_retry(_get_llm_with_tools(), messages)
 
-    ai_response, _, tool_messages = _run_tool_call_rounds(ai_response)
+    trace_id = str(state.get("trace_id", "no-trace"))
+    ai_response, tool_call_rounds, tool_messages = _run_tool_call_rounds(ai_response, trace_id)
     messages.extend(tool_messages)
+
+    usage = _extract_token_usage(ai_response)
+    current_usage = state.get("token_usage") or {}
+    token_usage = {
+        "input_tokens": int(current_usage.get("input_tokens", 0)) + int(usage.get("input_tokens", 0)),
+        "output_tokens": int(current_usage.get("output_tokens", 0)) + int(usage.get("output_tokens", 0)),
+        "tool_call_rounds": int(current_usage.get("tool_call_rounds", 0)) + int(tool_call_rounds),
+        "plan_step_count": int(current_usage.get("plan_step_count", len(plan))),
+    }
 
     summary: str = (
         ai_response.content
@@ -179,5 +220,6 @@ def executor_node(state: AgentState) -> AgentState:
         **state,
         "execution_results":  raw_results,
         "execution_summary":  summary,
+        "token_usage":        token_usage,
         "messages":           state.get("messages", []) + [ai_response],
     }

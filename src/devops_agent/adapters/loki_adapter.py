@@ -11,15 +11,21 @@ import httpcore
 
 logger = logging.getLogger(__name__)
 
+LOKI_URL_DEFAULT     = os.getenv("LOKI_URL")
+LOKI_USER            = os.getenv("LOKI_USER")
+LOKI_PASSWORD        = os.getenv("LOKI_PASSWORD")
+LOKI_TIMEOUT_CONNECT = int(os.getenv("LOKI_TIMEOUT_CONNECT", "5"))
+LOKI_TIMEOUT_READ    = int(os.getenv("LOKI_TIMEOUT_READ", "20"))    
+LOKI_QUERY_RETRY_MAX = max(1, int(os.getenv("LOKI_QUERY_RETRY_MAX", "2")))
 
 @dataclass
 class LokiAdapter:
-    base_url: str = field(default_factory=lambda: os.getenv("LOKI_URL", "http://loki.iotag-dev.svc.cluster.local:3100").rstrip("/"))
-    user: str | None = field(default_factory=lambda: os.getenv("LOKI_USER"))
-    password: str | None = field(default_factory=lambda: os.getenv("LOKI_PASSWORD"))
-    timeout_connect: int = field(default_factory=lambda: int(os.getenv("LOKI_TIMEOUT_CONNECT", "5")))
-    timeout_read: int = field(default_factory=lambda: int(os.getenv("LOKI_TIMEOUT_READ", "20")))
-    retry_max_attempts: int = field(default_factory=lambda: max(1, int(os.getenv("LOKI_QUERY_RETRY_MAX", "2"))))
+    base_url: str           = field(default_factory=lambda: LOKI_URL_DEFAULT.rstrip("/") if LOKI_URL_DEFAULT else "")
+    user: str | None        = field(default_factory=lambda: LOKI_USER)
+    password: str | None    = field(default_factory=lambda: LOKI_PASSWORD)
+    timeout_connect: int    = field(default_factory=lambda: LOKI_TIMEOUT_CONNECT)
+    timeout_read: int       = field(default_factory=lambda: LOKI_TIMEOUT_READ)
+    retry_max_attempts: int = field(default_factory=lambda: LOKI_QUERY_RETRY_MAX)
 
     def query_range(self, **kwargs) -> dict[str, Any]:
         """Execute a LogQL range query.
@@ -130,6 +136,7 @@ class LokiAdapter:
             write=self.timeout_connect,
             pool=self.timeout_connect,
         )
+        
         limits = httpx.Limits(max_connections=4, max_keepalive_connections=2)
         last_timeout_exc: Exception | None = None
         data: dict[str, Any] | None = None

@@ -1,0 +1,185 @@
+# Default values for a "deployment"
+
+# REQUIRED for you to set a value here, name of your service
+name: "iot-agent-stream-worker"
+
+# Number of pods in deployment, default of not highly available (override on HA environments)
+replicaCount: 1
+
+# minReadySeconds
+minReadySeconds: false
+
+# Rollback limit
+revisionHistoryLimit: 10
+
+priorityClassName: ""
+
+shareProcessNamespace: false
+
+# Image repository location (override if needed)
+image:
+  tag: ""
+  repository: ""
+  command: []
+  args: []
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# DEPRECATED / DO NOT USE, use podSecurityContext instead, this will be removed in a future release
+security:
+  runAsNonRoot: false
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Istio VirtualService definitions
+istio:
+  gateway:
+    createIfMissing: false
+    namespace: istio-system
+    name: istio-ingressgateway
+    selector:
+      istio: ingressgateway
+    port: 80
+    protocol: HTTP
+  virtualService:
+    enabled: true
+    name: "iot-agent-stream-worker"
+    annotations: {}
+    hosts:
+      - iot-agent-stream-worker-dev.iotag-dev.com
+    gateways:
+      - istio-system/istio-ingressgateway
+    http:
+      - match:
+          - uri:
+              prefix: /
+        route:
+          - destination:
+              host: iot-agent-stream-worker.iotag-dev.svc.cluster.local
+              port:
+                number: 80
+    # http: []
+
+# Ingress definitions
+ingress:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific
+  annotations: {}
+  hosts:
+    - host: iot-agent-stream-worker-dev.iotag-dev
+      paths:
+        - /
+  tls: []
+
+# Secondary ingress definition
+ingress_secondary:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - /
+  tls: []
+
+# Service definitions
+service:
+  enabled: true
+  annotations: {}
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  name: default-service
+  additionalPorts: []
+
+additionalPorts: []
+
+podAnnotations: {}
+
+usingNewRecommendedLabels: false
+
+labels: {}
+
+labelsEnableDefault: true
+
+lifecycle: {}
+
+globalEnvs: []
+
+globalEnvsSecondary: []
+
+extraEnvs:
+  - name: MQTT_BROKER_URI
+    value: "tcp://iot-agent-mqtt-broker.iotag-dev.svc.cluster.local:1883"
+  - name: ALERT_API_BASE_URL
+    value: "http://iot-agent-alert-api.iotag-dev.svc.cluster.local:80"
+  - name: JWT_SECRET
+    value: "supersecretkey"
+
+tty: false
+
+envFrom: []
+
+usingMemoryKibiBytesEnvs: false
+
+# livenessProbes are used to determine when to restart a container
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 120
+  periodSeconds: 10
+  timeoutSeconds: 9
+  successThreshold: 1
+  failureThreshold: 3
+  probeType: httpGet
+  scheme: HTTP
+  path: /actuator/health/liveness
+  port: default-service
+  command:
+    - ls -la /
+
+# readinessProbes are used to determine when a container is ready to start accepting traffic
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 20
+  periodSeconds: 5
+  timeoutSeconds: 4
+  successThreshold: 2
+  failureThreshold: 2
+  probeType: httpGet
+  scheme: HTTP
+  path: /actuator/health/readiness
+  port: default-service
+  command:
+    - ls -la /
+
+dnsConfig:
+  enabled: false
+  ndots: 6
+  options: []
+  searches: []
+  nameservers: []
+
+# BROKEN: memory limit 32Mi is far too low for a Spring Boot service, pod will be OOMKilled immediately
+resources:
+  limits:
+    cpu: 500m
+    memory: 32Mi
+  requests:
+    cpu: 100m
+    memory: 32Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+initContainers: []
+
+extraContainers: []

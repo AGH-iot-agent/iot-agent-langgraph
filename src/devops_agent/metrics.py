@@ -7,7 +7,6 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-# SLO definitions per category (spójne z TEST_PLAN.md)
 _SLO: dict[str, dict[str, float | int]] = {
     "github_issue": {"mttr_s": 90,  "input_tokens": 8000,  "tool_call_rounds": 6},
     "github_ci_failure":    {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8},

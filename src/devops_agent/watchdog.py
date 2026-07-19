@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, TypedDict
+from uuid import uuid4
 from devops_agent.event import AgentEvent
+from devops_agent.metrics import agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,10 @@ class StatusReport(TypedDict):
     config:     dict[str, Any] | None
 
 _DISPATCH_SEMAPHORE = threading.Semaphore(3)
+
+
+def _is_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 class AgentWatchdog:
     def __init__(self, adapter, graph, monitors) -> None:
@@ -162,21 +169,48 @@ class AgentWatchdog:
                 logger.exception("[WATCHDOG] Monitor %s failed", type(monitor).__name__)
                 continue
             for event in events:
-                self._executor.submit(self._dispatch, event)
+                future = self._executor.submit(self._dispatch, event)
+                future.add_done_callback(self._log_future_error)
+
+    @staticmethod
+    def _log_future_error(future) -> None:
+        try:
+            future.result()
+        except Exception:
+            logger.exception("[WATCHDOG] Dispatch future failed")
 
     def _dispatch(self, event: AgentEvent) -> None:
         with _DISPATCH_SEMAPHORE:
             self._dispatch_inner(event)
 
     def _dispatch_inner(self, event: AgentEvent) -> None:
+        started_at = time.time()
+        trace_id = str(event.context.get("trace_id") or f"watchdog-{uuid4()}")
+        event_context = dict(event.context)
+        event_context["trace_id"] = trace_id
+        configured_namespace = os.environ.get("KUBERNETES_NAMESPACE", "iotag-dev")
+        autoapply_enabled = _is_truthy(os.environ.get("AGENT_AUTOAPPLY"))
+
+        effective_dry_run = False
+        logger.info(
+            "[WATCHDOG] Dispatch start event_kind=%s title=%s trace_id=%s dry_run=%s autoapply=%s namespace=%s",
+            event.kind,
+            event.title,
+            trace_id,
+            effective_dry_run,
+            autoapply_enabled,
+            configured_namespace,
+        )
+
         try:
             state = {
+                "trace_id":       trace_id,
                 "request":        event.to_prompt(),
                 "event_kind":     event.kind,              
                 "issue_title":    event.title,           
                 "issue_body":     event.body,             
-                "dry_run":        False,
-                "context":        event.context,
+                "dry_run":        effective_dry_run,
+                "context":        event_context,
                 "max_revisions":  1,
                 "revision_count": 0,
             }
@@ -233,7 +267,42 @@ class AgentWatchdog:
                             event.kind, event.title, final[:300],
                         )
 
+            plan = result.get("plan") or []
+            validation = result.get("validation_result") or {}
+            token_usage = result.get("token_usage") or {}
+            input_tokens = int(token_usage.get("input_tokens", 0))
+            output_tokens = int(token_usage.get("output_tokens", 0))
+            agent_metrics.record(
+                {
+                    "trace_id": trace_id,
+                    "event_kind": str(result.get("event_kind") or event.kind),
+                    "repo": str(event_context.get("repo_full_name", "")),
+                    "title": event.title,
+                    "mttr_s": time.time() - started_at,
+                    "plan_step_count": int(token_usage.get("plan_step_count", len(plan))),
+                    "tool_call_rounds": int(token_usage.get("tool_call_rounds", 0)),
+                    "revision_count": int(result.get("revision_count", 0)),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                    "validation_passed": bool(validation.get("passed", False)),
+                    "pr_created": bool(result.get("pr_url")),
+                }
+            )
+
             self._append_alert(event.kind, event.title, event.context)
+            logger.info(
+                "[WATCHDOG] Dispatch end event_kind=%s title=%s trace_id=%s mttr_s=%.3f",
+                event.kind,
+                event.title,
+                trace_id,
+                time.time() - started_at,
+            )
 
         except Exception:
-            logger.exception("[WATCHDOG] Dispatch failed for event: %s", event.title)
+            logger.exception(
+                "[WATCHDOG] Dispatch failed event_kind=%s title=%s trace_id=%s",
+                event.kind,
+                event.title,
+                trace_id,
+            )

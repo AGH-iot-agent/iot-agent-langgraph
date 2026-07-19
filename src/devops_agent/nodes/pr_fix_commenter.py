@@ -40,7 +40,7 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     validation: dict[str, Any] = state.get("validation_result") or {}
     validation_history: list[dict[str, Any]] = list(state.get("validation_history") or [])
     fix_attempt: int = int(state.get("fix_attempt", 0))
-    max_fix_attempts: int = int(state.get("max_fix_attempts", 3))
+    max_fix_attempts: int = int(state.get("max_fix_attempts", 5))
 
     root_cause: str = proposal.get("root_cause", "unknown — agent could not determine root cause")
     error_message: str = proposal.get("error_message", "")
@@ -48,10 +48,9 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     files: list[dict[str, Any]] = proposal.get("files", [])
 
     dry_run: bool = state.get("dry_run", True)
-
-    # Attempt to create a fix branch PR targeting the failing PR's branch (not main).
     fix_pr_url: str | None = None
     fix_branch: str | None = None
+    
     if files and repo and branch and not dry_run:
         fix_branch, fix_pr_url = _create_fix_pr(
             repo,
@@ -116,7 +115,7 @@ def _create_fix_pr(
     validation: dict[str, Any] | None = None,
     validation_history: list[dict[str, Any]] | None = None,
     fix_attempt: int = 0,
-    max_fix_attempts: int = 3,
+    max_fix_attempts: int = 5,
 ) -> tuple[str | None, str | None]:
     """
     Create a fix branch from `branch`, commit all fixed files, and open a PR
@@ -150,9 +149,6 @@ def _create_fix_pr(
         if not path:
             continue
 
-        # When original_snippet is absent the LLM is providing a full-file replacement.
-        # Use the content directly — calling _patch_file_content with empty original_snippet
-        # always returns None (safety guard), so we must bypass it here.
         if not original_snippet:
             content = fixed_snippet or explicit_content
             if not content:
@@ -236,12 +232,9 @@ def _file_diff(f: dict[str, Any]) -> str:
     explicit_content: str = f.get("content", "") or ""
 
     if original_snippet and fixed_snippet:
-        # Snippet-level patch: show diff of the changed section only
         original = original_snippet
         fixed = fixed_snippet
     elif not original_snippet and (fixed_snippet or explicit_content):
-        # Full-file replacement: diff against an empty "before" so all lines show as added (+)
-        # This makes the proposed change clearly visible in the PR comment.
         original = ""
         fixed = fixed_snippet or explicit_content
     else:
@@ -319,7 +312,7 @@ def _build_comment(
     fix_branch: str | None = None,
     validation_history: list[dict[str, Any]] | None = None,
     fix_attempt: int = 0,
-    max_fix_attempts: int = 3,
+    max_fix_attempts: int = 5,
 ) -> str:
     validation_passed = validation.get("passed", False)
     validation_status = "passed" if validation_passed else "failed"

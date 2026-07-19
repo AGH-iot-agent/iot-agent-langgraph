@@ -21,6 +21,7 @@ class PlanStep(TypedDict):
 
 
 class AgentState(TypedDict, total=False):
+    trace_id: str
     request: str
     dry_run: bool
     context: dict[str, Any]
@@ -46,6 +47,5 @@ class AgentState(TypedDict, total=False):
     validation_history: list[dict[str, Any]]    # all past validation_result dicts (fed back to ci_fixer)
     token_usage: dict[str, int]                 # {input_tokens, output_tokens, tool_call_rounds, plan_step_count}
     messages: list[Any]                         # LangChain message history for tool calls
-    # --- Security ---
     security_violations: list[dict[str, str]]   # serialised SecurityViolation dicts accumulated across the run
     security_blocked: bool                      # True when a critical/high threat caused the run to be halted

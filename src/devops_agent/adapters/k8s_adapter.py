@@ -14,10 +14,10 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-KUBECONFIG_DEFAULT = os.getenv("KUBECONFIG", os.path.expanduser("~/.kube/config"))
-_LOG_RUNNING_CMD = "Running command: %s"
-_LOG_CMD_FAILED = "Command failed with error: %s"
-_YAML_SUFFIX = ".yaml"
+KUBECONFIG_DEFAULT  = os.getenv("KUBECONFIG")
+_LOG_RUNNING_CMD    = "Running command: %s"
+_LOG_CMD_FAILED     = "Command failed with error: %s"
+_YAML_SUFFIX        = ".yaml"
 
 @dataclass
 class K8sAdapter:
@@ -36,7 +36,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "pods", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
 
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
@@ -59,12 +59,15 @@ class K8sAdapter:
         except Exception as e:
             logger.exception("Exception occurred while getting pods for namespace %s", namespace)
             return {"status": "error", "message": str(e)}
+        
+    def _env(self) -> dict[str, str]:
+        return {**os.environ, "KUBECONFIG": self.kubeconfig}
 
     def get_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -79,7 +82,7 @@ class K8sAdapter:
         cmd = ["kubectl", "describe", "pod", pod_name, "-n", namespace]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -99,7 +102,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "events", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -124,7 +127,7 @@ class K8sAdapter:
         cmd = ["kubectl", "describe", "event", event_name, "-n", namespace]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -139,7 +142,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "events", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -173,7 +176,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "deployments", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -277,7 +280,7 @@ class K8sAdapter:
                 f.write(manifest_yaml)
                 tmp_path = f.name
             cmd = ["kubectl", "apply", "--dry-run=server", "-n", namespace, "-f", tmp_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             _os.unlink(tmp_path)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
@@ -452,7 +455,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "resourcequota", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -484,7 +487,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "pvc", "-n", namespace, "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -513,7 +516,7 @@ class K8sAdapter:
         cmd = ["kubectl", "get", "nodes", "-o", "json"]
         logger.debug(_LOG_RUNNING_CMD, " ".join(cmd))
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 logger.warning(_LOG_CMD_FAILED, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -558,7 +561,7 @@ class K8sAdapter:
                     tmp_values = f.name
                 cmd += ["-f", tmp_values]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok", "manifests": result.stdout}
@@ -572,6 +575,18 @@ class K8sAdapter:
                 if cleanup_dir and os.path.isdir(cleanup_dir):
                     _shutil.rmtree(cleanup_dir, ignore_errors=True)
 
+    def _helm_uninstall(self, release_name: str, namespace: str, dry_run: bool = False) -> dict[str, Any]:
+        cmd = ["helm", "uninstall", release_name, "--namespace", namespace]
+        if dry_run:
+            return {"status": "dry_run", "message": f"[DRY RUN] Would run: {' '.join(cmd)}"}
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
+            if result.returncode != 0:
+                return {"status": "error", "message": result.stderr}
+            return {"status": "ok", "output": result.stdout}
+        except Exception as exc:
+            logger.exception("Exception in _helm_uninstall")
+            return {"status": "error", "message": str(exc)}
 
     def _helm_upgrade_dry_run(
         self,
@@ -614,7 +629,7 @@ class K8sAdapter:
                 "--timeout",
                 "5m",
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
             if result.returncode != 0:
                 return {
                     "status": "error",
@@ -709,8 +724,7 @@ class K8sAdapter:
             "output": apply_result.get("output", ""),
         }
 
-    @staticmethod
-    def _probe_cluster_access() -> str | None:
+    def _probe_cluster_access(self) -> str | None:
         last_error: str = "cluster API unreachable"
         kubectl_probe_cmds = [
             ["kubectl", "version", "--short", "--request-timeout=8s"],
@@ -720,11 +734,7 @@ class K8sAdapter:
         for cmd in kubectl_probe_cmds:
             try:
                 cluster_probe = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    env=os.environ,
-                    timeout=12,
+                    cmd, capture_output=True, text=True, env=self._env(), timeout=12,
                 )
             except Exception as exc:
                 last_error = str(exc)
@@ -752,8 +762,8 @@ class K8sAdapter:
             missing.append("helm binary not found in PATH")
         if not shutil.which("kubectl"):
             missing.append("kubectl binary not found in PATH")
-        if self._is_smb_uri(chart) and not shutil.which("curl"):
-            missing.append("curl binary not found in PATH (required for smb:// chart source)")
+        if self._is_smb_uri(chart) and not shutil.which("smbclient"):
+            missing.append("smbclient binary not found in PATH (required for smb:// chart source)")
         if missing:
             return {"status": "error", "message": "; ".join(missing)}
 
@@ -770,44 +780,70 @@ class K8sAdapter:
             }
 
         return None
-
-
+    
+    def list_secrets(self, namespace: str = "default") -> dict[str, Any]:
+        kubectl_list_cmd = ["kubectl", "get", "secrets", "-n", namespace, "-o", "json"]
+        logger.debug(_LOG_RUNNING_CMD, " ".join(kubectl_list_cmd))
+        try:
+            result = subprocess.run(kubectl_list_cmd, capture_output=True, text=True, env=self._env())
+            if result.returncode != 0:
+                logger.warning(_LOG_CMD_FAILED, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            secrets_json = json.loads(result.stdout)
+            secrets = []
+            for secret in secrets_json.get("items", []):
+                secrets.append({
+                    "name": secret["metadata"]["name"],
+                    "type": secret.get("type", ""),
+                    "creation_timestamp": secret["metadata"].get("creationTimestamp", ""),
+                })
+            logger.debug("Retrieved %d secrets from namespace %s", len(secrets), namespace)
+            return {"status": "ok", "secrets": secrets}
+        except Exception as e:
+            logger.exception("Exception occurred while listing secrets in namespace %s", namespace)
+            return {"status": "error", "message": str(e)}  
+        
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
         if dry_run:
             return {"status": "ok", "dry_run": True}
         
-        if action == "get_pods":
-            return self.get_pods(args["namespace"])
-        if action == "get_pod":
-            return self.get_pod(args["pod_name"], args["namespace"])
-        if action == "describe_pod":
-            return self.describe_pod(args["pod_name"], args["namespace"])
-        
-        if action == "get_events":
-            return self.get_events(args["namespace"])
-        if action == "describe_event":
-            return self.describe_event(args["event_name"], args["namespace"])
-        if action == "get_pod_events":
-            return self.get_pod_events(args["pod_name"], args["namespace"])
-        
-        if action == "get_rollout_status":
-            return self.get_rollout_status(args["namespace"])
-        if action == "get_pod_logs":
-            return self.get_pod_logs(args["namespace"], args.get("pod") or args.get("pod_name", ""), args.get("container"), args.get("tail", 100))
-        if action == "restart_deployment":
-            return self.restart_deployment(args["namespace"], args["deployment"], dry_run=dry_run)
-        if action == "apply_manifest_dryrun":
-            return self.apply_manifest_dryrun(args["manifest_yaml"], args.get("namespace", "iotag-sbx"))
-        if action == "helm_template_render":
-            return self.helm_template_render(args["name"], args["chart"], args.get("values_override", ""))
-        if action == "helm_validate_deployability":
-            return self.helm_validate_deployability(
-                release_name=args["release_name"],
-                service_name=args["service_name"],
-                namespace=args["namespace"],
-                chart=args["chart"],
-                values_override=args.get("values_override", ""),
-                image_repository=args.get("image_repository", "ghcr.io/placeholder/placeholder"),
-                image_tag=args.get("image_tag", "ci"),
-            )
-        return {"status": "error", "message": f"Unknown action: {action}"}
+        match action:
+            case "get_pods":
+                return self.get_pods(args["namespace"])
+            case "get_pod":
+                return self.get_pod(args["pod_name"], args["namespace"])
+            case "describe_pod":
+                return self.describe_pod(args["pod_name"], args["namespace"])
+            case "get_events": 
+                return self.get_events(args["namespace"])
+            case "describe_event":
+                return self.describe_event(args["event_name"], args["namespace"])
+            case "get_pod_events":
+                return self.get_pod_events(args["pod_name"], args["namespace"])
+            case "get_rollout_status":
+                return self.get_rollout_status(args["namespace"])
+            case "get_pod_logs":
+                return self.get_pod_logs(args["namespace"], args.get("pod") or args.get("pod_name", ""), args.get("container"), args.get("tail", 100))
+            case "list_secrets":
+                return self.list_secrets(args["namespace"])
+            case "restart_deployment":
+                return self.restart_deployment(args["namespace"], args["deployment"], dry_run=dry_run)
+            case "apply_manifest_dryrun":
+                return self.apply_manifest_dryrun(args["manifest_yaml"], args.get("namespace", "iotag-sbx"))
+            case "helm_uninstall":
+                return self._helm_uninstall(args["release_name"], args["namespace"], dry_run=dry_run)
+            case "helm_template_render":
+                return self.helm_template_render(args["name"], args["chart"], args.get("values_override", ""))
+            case "helm_validate_deployability":
+                return self.helm_validate_deployability(
+                    release_name=args["release_name"],
+                    service_name=args["service_name"],
+                    namespace=args["namespace"],
+                    chart=args["chart"],
+                    values_override=args.get("values_override", ""),
+                    image_repository=args.get("image_repository", "ghcr.io/placeholder/placeholder"),
+                    image_tag=args.get("image_tag", "ci"),
+                )
+            case _:
+                return {"status": "error", "message": f"Unknown action: {action}"}
+

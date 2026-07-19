@@ -17,7 +17,6 @@ def _secure_call(tool_name: str, service: str, action: str, params: dict, dry_ru
     Any high/critical violation is returned as an error dict instead of
     forwarding the unsafe payload to the LLM.
     """
-    # -- (1) Scan tool call arguments --
     call_result = security_layer.scan_tool_call(tool_name, params)
     if not call_result.is_safe:
         violations_summary = "; ".join(
@@ -26,10 +25,8 @@ def _secure_call(tool_name: str, service: str, action: str, params: dict, dry_ru
         logger.error("[SECURITY] Tool call blocked: tool=%s violations=%s", tool_name, violations_summary)
         return {"status": "error", "message": f"[SECURITY] Tool call blocked: {violations_summary}"}
 
-    # -- (2) Execute --
     raw = _adapter.run(service=service, tool=action, params=params, dry_run=dry_run)
 
-    # -- (3) Scan tool output for indirect injection / leaked secrets --
     raw_str = str(raw)
     output_result = security_layer.scan_tool_output(tool_name, raw_str)
     if not output_result.is_safe:
@@ -40,8 +37,6 @@ def _secure_call(tool_name: str, service: str, action: str, params: dict, dry_ru
             "[SECURITY] Tool output sanitised: tool=%s violations=%s",
             tool_name, violations_summary,
         )
-        # Return sanitised output as a warning envelope so the LLM knows
-        # the data was altered, but doesn't receive the unsafe content raw.
         return {
             "status": "sanitised",
             "message": f"[SECURITY] Output sanitised — {violations_summary}",

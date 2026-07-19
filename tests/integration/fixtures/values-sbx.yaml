@@ -1,7 +1,8 @@
 # Default values for a "deployment"
 
 # REQUIRED for you to set a value here, name of your service
-name: "iot-agent-login-screen"
+name: ""
+
 # Number of pods in deployment, default of not highly available (override on HA environments)
 replicaCount: 1
 
@@ -22,6 +23,26 @@ priorityClassName: ""
 # NOTE/WARNING: Enabling this may break certain containers that expect/demand their main process to be process #1.
 # See: https://kubernetes.io/docs/tasks/configure-pod-container/share-process-namespace/
 shareProcessNamespace: false
+
+image:
+  # Which image to release (NOTE: ONLY SPECIFY IF YOU ARE DEPLOYING EXTERNALLY, eg from dockerhub)
+  tag: ""
+  # Which repo to use (NOTE: ONLY SPECIFY IF YOU ARE DEPLOYING EXTERNALLY)
+  repository: ""
+  # Which command to run (NOTE: ONLY SPECIFY IF YOU NEED, IF NOT SPECIFIED WILL USE DOCKER DEFAULT)
+  command: []
+  # What args to pass to the command (NOTE: ONLY SPECIFY IF YOU NEED, IF NOT SPECIFIED WILL USE DOCKER DEFAULT)
+  args: []
+  # Image pull policy: IfNotPresent / Always
+  imagePullPolicy: IfNotPresent
+  ## Optionally specify an array of imagePullSecrets.
+  ## Secrets must be manually created in the namespace.
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  ## e.g:
+  ## imagePullSecrets:
+  ##   - name: myRegistryKeySecretName
+  ##
+  imagePullSecrets: []
 
 # To change the securityContext for the pod.
 # Everything under 'podSecurityContext' will be copied as-is under the 'securityContext' key for the pod spec
@@ -205,18 +226,18 @@ livenessProbe:
   successThreshold: 1
   failureThreshold: 3
 
-# Specify either httpGet, tcpSocket or exec
-# httpGet uses scheme, path and port (below)
-# tcpSocket uses port (below)
-# exec uses command (below)
-probeType: httpGet
+  # Specify either httpGet, tcpSocket or exec
+  # httpGet uses scheme, path and port (below)
+  # tcpSocket uses port (below)
+  # exec uses command (below)
+  probeType: httpGet
 
-# parameters for probes
-scheme: HTTP
-path: /
-port: default-service
-command:
-  - ls -la /
+  # parameters for probes
+  scheme: HTTP
+  path: /
+  port: default-service
+  command:
+    - ls -la /
 
 
 # readinessProbes are used to determine when a container is ready to start accepting traffic

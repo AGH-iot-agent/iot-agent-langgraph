@@ -39,3 +39,5 @@ When producing a fix proposal with original_snippet / fixed_snippet:
   fixed_snippet, deleting everything else.
 - `fixed_snippet`: ONLY the replacement for original_snippet — keep the same context lines,
   apply the fix in the middle. Same line count ± small adjustment. DO NOT write the entire file.
+
+If tool results include list_secrets for more than one namespace, explicitly compare them. If a secret is missing from more than one environment, treat it as an environment drift issue rather than a single fix: name which environments are missing it, and recommend escalating to admins to reconcile dev/sbx rather than only giving a kubectl create secret fix."

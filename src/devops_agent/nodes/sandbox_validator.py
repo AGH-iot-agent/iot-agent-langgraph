@@ -63,7 +63,7 @@ def route_after_validation(state: AgentState) -> str:
     """
     validation = state.get("validation_result") or {}
     fix_attempt: int = state.get("fix_attempt", 0)
-    max_fix_attempts: int = state.get("max_fix_attempts", 3)
+    max_fix_attempts: int = state.get("max_fix_attempts", 5)
 
     if not validation.get("passed") and fix_attempt < max_fix_attempts:
         logger.info(

@@ -6,8 +6,27 @@ RUN groupadd --gid 1000 app && \
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc && \
+    apt-get install -y --no-install-recommends \
+      gcc \
+      curl \
+      ca-certificates \
+      gnupg \
+      smbclient \
+      gh && \
     rm -rf /var/lib/apt/lists/*
+
+RUN KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl && \
+    chmod +x /usr/local/bin/kubectl && \
+    kubectl version --client
+
+RUN HELM_VERSION="v3.16.4" && \
+    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tgz && \
+    tar -xzf /tmp/helm.tgz -C /tmp && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    chmod +x /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tgz /tmp/linux-amd64 && \
+    helm version --short
 
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache-dir \
@@ -23,12 +42,8 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
 COPY src/ ./src/
 
 RUN pip install --no-cache-dir -e .
-
-# Install guardrails optional extras (Presidio + detect-secrets) then Hub validators
 RUN pip install --no-cache-dir -e ".[guardrails]"
 RUN python -m spacy download en_core_web_sm
-RUN guardrails hub install hub://guardrails/detect_pii --quiet
-RUN guardrails hub install hub://guardrails/secrets_present --quiet
 
 RUN mkdir -p /home/app/.kube && chown -R app:app /home/app/.kube /app
 

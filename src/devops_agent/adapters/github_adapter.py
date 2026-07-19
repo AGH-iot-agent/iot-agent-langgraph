@@ -204,6 +204,38 @@ class GHAdapter:
             logger.exception("[GHAdapter] Exception occurred while getting pull request #%d for %s", pr_number, repo)
             return {"status": "error", "message": str(e)}
 
+    def create_issue(self, repo: str, title: str, body: str, labels: list[str] | None = None) -> dict[str, Any]:
+        cmd = ["gh", "api", f"/repos/{repo}/issues", "--method", "POST", "--input", "-"]
+        payload = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = labels
+        logger.debug("[GHAdapter] Creating issue in %s with title '%s'", repo, title)
+        try:
+            result = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.error("[GHAdapter] Failed to create issue in %s with title '%s': %s", repo, title, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            issue_json = json.loads(result.stdout)
+            logger.debug("[GHAdapter] Successfully created issue #%d in %s with title '%s'", issue_json.get("number"), repo, title)
+            return {"status": "ok", "number": issue_json.get("number")}
+        except Exception as e:
+            logger.exception("[GHAdapter] Exception occurred while creating issue in %s with title '%s'", repo, title)
+            return {"status": "error", "message": str(e)}
+
+    def update_issue(self, repo: str, issue_number: int, state: str) -> dict[str, Any]:
+        cmd = ["gh", "api", f"/repos/{repo}/issues/{issue_number}", "--method", "PATCH", "--input", "-"]
+        payload = {"state": state}
+        logger.debug("[GHAdapter] Updating issue #%d in %s to state '%s'", issue_number, repo, state)
+        try:
+            result = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.error("[GHAdapter] Failed to update issue #%d in %s to state '%s': %s", issue_number, repo, state, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            logger.debug("[GHAdapter] Successfully updated issue #%d in %s to state '%s'", issue_number, repo, state)
+            return {"status": "ok"}
+        except Exception as e:
+            logger.exception("[GHAdapter] Exception occurred while updating issue #%d in %s to state '%s'", issue_number, repo, state)
+            return {"status": "error", "message": str(e)}
 
     def list_issues(self, repo: str, state: str = "open") -> dict[str, Any]:
         cmd = ["gh", "api", f"/repos/{repo}/issues?state={state}"]
@@ -236,7 +268,6 @@ class GHAdapter:
             logger.exception("[GHAdapter] Exception occurred while getting issue #%d for %s", issue_number, repo)
             return {"status": "error", "message": str(e)}
 
-
     def create_issue_comment(
         self,
         repo: str,
@@ -254,6 +285,20 @@ class GHAdapter:
             return {"status": "ok"}
         except Exception as e:
             logger.exception("[GHAdapter] Exception occurred while creating comment on issue #%d for %s", issue_number, repo)
+            return {"status": "error", "message": str(e)}
+
+    def delete_issue_comment(self, repo: str, comment_id: int) -> dict[str, Any]:
+        cmd = ["gh", "api", f"/repos/{repo}/issues/comments/{comment_id}", "--method", "DELETE"]
+        logger.debug("[GHAdapter] Deleting comment #%d for %s", comment_id, repo)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                logger.error("[GHAdapter] Failed to delete comment #%d for %s: %s", comment_id, repo, result.stderr)
+                return {"status": "error", "message": result.stderr}
+            logger.debug("[GHAdapter] Successfully deleted comment #%d for %s", comment_id, repo)
+            return {"status": "ok"}
+        except Exception as e:
+            logger.exception("[GHAdapter] Exception occurred while deleting comment #%d for %s", comment_id, repo)
             return {"status": "error", "message": str(e)}
 
     '''        
@@ -401,6 +446,33 @@ class GHAdapter:
         except Exception as e:
             logger.exception("[GHAdapter] Exception creating branch %s on %s", branch_name, repo)
             return {"status": "error", "message": str(e)}
+        
+    def close_pull_request(self, repo: str, pr_number: int) -> dict[str, Any]:
+        """Close a pull request."""
+        payload = json.dumps({"state": "closed"})
+        cmd = ["gh", "api", f"/repos/{repo}/pulls/{pr_number}", "--method", "PATCH", "--input", "-"]
+        logger.info("[GHAdapter] Closing PR #%d on %s", pr_number, repo)
+        try:
+            result = subprocess.run(cmd, input=payload, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                return {"status": "error", "message": result.stderr}
+            return {"status": "ok"}
+        except Exception as e:
+            logger.exception("[GHAdapter] Exception closing PR #%d on %s", pr_number, repo)
+            return {"status": "error", "message": str(e)}
+        
+    def delete_branch(self, repo: str, branch_name: str) -> dict[str, Any]:
+        """Delete a branch."""
+        cmd = ["gh", "api", f"/repos/{repo}/git/refs/heads/{branch_name}", "--method", "DELETE"]
+        logger.info("[GHAdapter] Deleting branch %s on %s", branch_name, repo)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            if result.returncode != 0:
+                return {"status": "error", "message": result.stderr}
+            return {"status": "ok"}
+        except Exception as e:
+            logger.exception("[GHAdapter] Exception deleting branch %s on %s", branch_name, repo)
+            return {"status": "error", "message": str(e)}
 
     def commit_file(
         self,
@@ -471,51 +543,55 @@ class GHAdapter:
     def run(self, action: str, args: dict[str, Any], dry_run: bool) -> dict[str, Any]:
         if dry_run:
             return {"status": "ok", "dry_run": True}
-
-        if action == "get_repo_tree":
-            return self.get_repo_tree(args["repo"], args.get("ref", "HEAD"))
-        if action == "get_file_content":
-            return self.get_file_content(args["repo"], args["path"], args.get("ref", "HEAD"))
-        if action == "search_code":
-            return self.search_code(args["repo"], args["query"])
-        if action == "get_commit_history":
-            return self.get_commit_history(args["repo"], args["path"], args.get("ref", "HEAD"))
-        if action == "list_org_repos":
-            return self.list_org_repos(args["org"], args.get("limit", 100))
-
-        if action == "list_pull_requests":
-            return self.list_pull_requests(args["repo"], args.get("state", "open"))
-        if action == "get_pull_request":
-            return self.get_pull_request(args["repo"], args["pr_number"])
-        if action == "list_issues":
-            return self.list_issues(args["repo"], args.get("state", "open"))
-        if action == "get_issue":
-            return self.get_issue(args["repo"], args["issue_number"])
-        if action == "create_issue_comment":
-            return self.create_issue_comment(args["repo"], args["issue_number"], args["body"])
-        if action == "get_issue_comments":
-            return self.get_issue_comments(args["repo"], args["issue_number"])
-
-        if action == "list_workflows":
-            return self.list_workflows(args["repo"])
-        if action == "get_workflow_runs":
-            return self.get_workflow_runs(args["repo"], args.get("per_page", 10), args.get("status", ""))
-        if action == "get_job_logs":
-            return self.get_job_logs(args["repo"], args["run_id"], args.get("job_id", 0))
-        if action == "get_pr_comments":
-            return self.get_pr_comments(args["repo"], args["pr_number"])
-        if action == "create_pull_request":
-            return self.create_pull_request(
-                args["repo"], args["title"], args["body"],
-                args["branch"], args.get("base", "main"), dry_run,
-            )
-        if action == "get_branch_sha":
-            return self.get_branch_sha(args["repo"], args["branch"])
-        if action == "create_branch":
-            return self.create_branch(args["repo"], args["branch_name"], args["from_sha"])
-        if action == "commit_file":
-            return self.commit_file(
-                args["repo"], args["path"], args["content"],
-                args["branch"], args["message"], args.get("sha"),
-            )
-        return {"status": "error", "message": f"Unknown action: {action}"}
+        
+        match action:
+            case "get_repo_tree":
+                return self.get_repo_tree(args["repo"], args.get("ref", "HEAD"))
+            case "get_file_content":
+                return self.get_file_content(args["repo"], args["path"], args.get("ref", "HEAD"))
+            case "search_code":
+                return self.search_code(args["repo"], args["query"])
+            case "get_commit_history":
+                return self.get_commit_history(args["repo"], args["path"], args.get("ref", "HEAD"))
+            case "list_org_repos":
+                return self.list_org_repos(args["org"], args.get("limit", 100))
+            case "list_pull_requests":
+                return self.list_pull_requests(args["repo"], args.get("state", "open"))
+            case "get_pull_request":
+                return self.get_pull_request(args["repo"], args["pr_number"])
+            case "list_issues":
+                return self.list_issues(args["repo"], args.get("state", "open"))
+            case "create_issue":
+                return self.create_issue(args["repo"], args["title"], args["body"], args.get("labels"))
+            case "update_issue":
+                return self.update_issue(args["repo"], args["issue_number"], args["state"])
+            case "get_issue":
+                return self.get_issue(args["repo"], args["issue_number"])
+            case "create_issue_comment":
+                return self.create_issue_comment(args["repo"], args["issue_number"], args["body"])
+            case "get_issue_comments":
+                return self.get_issue_comments(args["repo"], args["issue_number"])
+            case "list_workflows":
+                return self.list_workflows(args["repo"])
+            case "get_workflow_runs":
+                return self.get_workflow_runs(args["repo"], args.get("per_page", 10), args.get("status", ""))
+            case "get_job_logs":
+                return self.get_job_logs(args["repo"], args["run_id"], args.get("job_id", 0))
+            case "get_pr_comments":
+                return self.get_pr_comments(args["repo"], args["pr_number"])
+            case "create_pull_request":
+                return self.create_pull_request(
+                    args["repo"], args["title"], args["body"],
+                    args["branch"], args.get("base", "main"), dry_run,
+                )
+            case "get_branch_sha":
+                return self.get_branch_sha(args["repo"], args["branch"])
+            case "create_branch":
+                return self.create_branch(args["repo"], args["branch_name"], args["from_sha"])
+            case "commit_file":
+                return self.commit_file(
+                    args["repo"], args["path"], args["content"],
+                    args["branch"], args["message"], args.get("sha"),
+                )
+            case _:
+                return {"status": "error", "message": f"Unknown action: {action}"}

@@ -1,0 +1,31 @@
+services:
+    iot-agent-langgraph:
+        container_name: iot-agent-langgraph
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+        image: iot-agent-langgraph:local
+        env_file:
+            - .env
+        ports:
+            - "8123:8123"
+        environment:
+            GITHUB_ORG: ${GITHUB_ORG:-AGH-iot-agent}
+            KUBERNETES_NAMESPACE: ${KUBERNETES_NAMESPACE:-iotag-dev}
+            AGENT_AUTOAPPLY: ${AGENT_AUTOAPPLY:-false}
+            IOTAG_WATCHDOG_AUTOSTART: ${IOTAG_WATCHDOG_AUTOSTART:-true}
+            IOTAG_FORCE_BOOT_AUTOSTART: ${IOTAG_FORCE_BOOT_AUTOSTART:-true}
+            IOTAG_FORCE_BOOT_MONITOR: ${IOTAG_FORCE_BOOT_MONITOR:-true}
+            WATCHDOG_INTERVAL_SECONDS: ${WATCHDOG_INTERVAL_SECONDS:-30}
+            MONITOR_GITHUB_ISSUES: ${MONITOR_GITHUB_ISSUES:-true}
+            MONITOR_GITHUB_PRS: ${MONITOR_GITHUB_PRS:-false}
+            MONITOR_GITHUB_CI_FAILURE: ${MONITOR_GITHUB_CI_FAILURE:-false}
+            MONITOR_GITHUB_PR_BUILDS: ${MONITOR_GITHUB_PR_BUILDS:-false}
+            MONITOR_PROMETHEUS: ${MONITOR_PROMETHEUS:-false}
+            MONITOR_LOKI: ${MONITOR_LOKI:-false}
+            MONITOR_K8S: ${MONITOR_K8S:-false}
+            DEVOPS_AGENT_LOG_LEVEL: ${DEVOPS_AGENT_LOG_LEVEL:-DEBUG}
+        volumes:
+            - ./logs:/app/logs
+            - ${HOME}/.kube:/home/app/.kube:ro
+        restart: unless-stopped

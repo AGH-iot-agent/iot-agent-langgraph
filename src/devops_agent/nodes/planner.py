@@ -40,7 +40,6 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
     repo = context.get("repo_full_name", "")
     run_id = context.get("run_id", 0)
     branch = context.get("branch", "main")
-    # Deploy failures land in iotag-sbx; PR build failures in iotag-dev
     namespace = context.get("namespace", "iotag-sbx")
 
     plan: list[PlanStep] = [
@@ -49,7 +48,6 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_job_logs",
             "args": {"repo": repo, "run_id": run_id, "job_id": 0},
         },
-        # Fetch the CI workflow file (always named ci.yml in this project — not build.yml)
         {
             "tool": "github",
             "action": "get_file_content",
@@ -258,7 +256,6 @@ def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
     repo = context.get("repo_full_name", "")
 
     plan: list[PlanStep] = [
-        # 1. Confirm spike is still active
         {
             "tool": "prometheus",
             "action": "query",
@@ -266,7 +263,6 @@ def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
                 "query": f'sum(rate(http_server_requests_seconds_count{{namespace="{namespace}"}}[1m])) by (pod)',
             },
         },
-        # 2. Current replica count and pod health
         {
             "tool": "kubernetes",
             "action": "get_rollout_status",
@@ -277,7 +273,6 @@ def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_pods",
             "args": {"namespace": namespace},
         },
-        # 3. Loki errors during spike
         {
             "tool": "loki",
             "action": "query_range",
@@ -290,7 +285,6 @@ def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
         },
     ]
 
-    # 4. If we know the repo, fetch current values to propose a fix
     if repo:
         plan.append({
             "tool": "github",
@@ -300,6 +294,21 @@ def _scalability_plan(state: AgentState, request: str) -> list[PlanStep]:
 
     return plan
 
+
+def _secret_mismatch_plan(state: AgentState, request: str) -> list[PlanStep]:
+    context = state.get("context", {})
+    repo = context.get("repo_full_name", "")
+    dev_namespace = "iotag-dev"
+    sbx_namespace = "iotag-sbx"
+
+    return [
+        {"tool": "kubernetes", "action": "list_secrets", "args": {"namespace": dev_namespace}},
+        {"tool": "kubernetes", "action": "list_secrets", "args": {"namespace": sbx_namespace}},
+        {"tool": "kubernetes", "action": "get_pods",     "args": {"namespace": dev_namespace}},
+        {"tool": "kubernetes", "action": "get_events",   "args": {"namespace": dev_namespace}},
+        {"tool": "github", "action": "get_file_content", "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": "main"}},
+        {"tool": "github", "action": "get_file_content", "args": {"repo": repo, "path": "Helm/values-sbx.yaml", "ref": "main"}},
+    ]
 
 def _loki_error_plan(state: AgentState, request: str) -> list[PlanStep]:
     """Plan for loki_error_spike events — identify service and check K8s state."""
@@ -400,7 +409,6 @@ def _infra_issue_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_commit_history",
             "args": {"repo": repo, "per_page": 5},
         },
-        # Live K8s state — confirms whether pods are actually crashing / healthy
         {
             "tool": "kubernetes",
             "action": "get_pods",
@@ -676,9 +684,15 @@ def planner_node(state: AgentState) -> AgentState:
     routing_text = (request + " " + issue_body).lower()
 
     if event_kind in ("github_ci_failure", "github_pr_build_failure"):
-        plan = _ci_failure_plan(state, request)
+        if _contains_any(routing_text, ("secret", "credential", "credentials")):
+            plan = _secret_mismatch_plan(state, request)
+        else:
+            plan = _ci_failure_plan(state, request)
     elif event_kind in ("github_issue", "github_pr"):
-        plan = _infra_issue_plan(state, request)
+        if _contains_any(routing_text, ("secret", "credential", "credentials")):
+            plan = _secret_mismatch_plan(state, request)
+        else:
+            plan = _infra_issue_plan(state, request)
     elif event_kind in ("request_rate_spike", "high_cpu_usage", "high_http_latency", "high_error_rate"):
         plan = _scalability_plan(state, request)
     elif event_kind == "loki_error_spike":
@@ -717,5 +731,9 @@ def planner_node(state: AgentState) -> AgentState:
         **state,
         "plan": plan,
         "risk_level": "medium",
+        "token_usage": {
+            **(state.get("token_usage") or {}),
+            "plan_step_count": len(plan),
+        },
         **({"final_summary": "No plan could be generated for this request."} if not plan else {}),
     }

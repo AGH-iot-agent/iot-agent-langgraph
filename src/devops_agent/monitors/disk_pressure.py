@@ -7,17 +7,14 @@ from devops_agent.mcp_adapter import MCPAdapter
 
 logger = logging.getLogger(__name__)
 
-# Alert when PVC usage (from Prometheus) exceeds this fraction.
 _PVC_WARN_THRESHOLD = 0.80
-# Alert when node filesystem free space drops below this fraction.
 _NODE_DISK_FREE_THRESHOLD = 0.15
 
-# PromQL queries for PVC usage via kubelet_volume_stats metrics.
 _PVC_USAGE_QUERY = (
     'kubelet_volume_stats_used_bytes{{namespace="{namespace}"}}'
     ' / kubelet_volume_stats_capacity_bytes{{namespace="{namespace}"}}'
 )
-# Node filesystem free ratio (excludes tmpfs / overlay / devtmpfs).
+
 _NODE_DISK_FREE_QUERY = (
     'min by (instance, mountpoint) ('
     '  node_filesystem_avail_bytes{{fstype!~"tmpfs|overlay|devtmpfs"}}'

@@ -1,29 +1,80 @@
-2026-05-17 16:12:05,303 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28container_cpu_usage_seconds_total%7Bnamespace%3D%22iotag-dev%22%2Ccontainer%21%3D%22%22%7D%5B5m%5D%29%29+by+%28pod%29 "HTTP/1.1 200 OK"
-2026-05-17 16:12:05,312 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=histogram_quantile%280.99%2C+sum%28rate%28http_server_requests_seconds_bucket%7Bnamespace%3D%22iotag-dev%22%7D%5B5m%5D%29%29+by+%28le%2C+pod%2C+uri%29%29 "HTTP/1.1 200 OK"
-2026-05-17 16:12:05,321 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28http_server_requests_seconds_count%7Bnamespace%3D%22iotag-dev%22%2Cstatus%3D~%225..%22%7D%5B5m%5D%29%29+by+%28pod%2C+uri%29 "HTTP/1.1 200 OK"
-2026-05-17 16:12:05,331 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28http_server_requests_seconds_count%7Bnamespace%3D%22iotag-dev%22%7D%5B1m%5D%29%29+by+%28pod%29 "HTTP/1.1 200 OK"
-2026-05-17 16:12:05,332 INFO devops_agent.adapters.loki_adapter [GRAFANA-API] GET http://localhost:3100/loki/api/v1/query_range params={'query': '{namespace="iotag-dev"} |~ "(?i)(error|exception|fatal)" | logfmt | level=~"(error|ERROR|fatal|FATAL)"', 'start': '1779026525332400384', 'end': '1779027125332400384', 'limit': '500', 'direction': 'backward'}
-2026-05-17 16:12:05,382 INFO httpx HTTP Request: GET http://localhost:3100/loki/api/v1/query_range?query=%7Bnamespace%3D%22iotag-dev%22%7D+%7C~+%22%28%3Fi%29%28error%7Cexception%7Cfatal%29%22+%7C+logfmt+%7C+level%3D~%22%28error%7CERROR%7Cfatal%7CFATAL%29%22&start=1779026525332400384&end=1779027125332400384&limit=500&direction=backward "HTTP/1.1 200 OK"
-2026-05-17 16:12:05,383 INFO devops_agent.adapters.loki_adapter [GRAFANA-API] Response 200 {"status":"success","data":{"resultType":"streams","result":[],"stats":{"summary":{"bytesProcessedPerSecond":111095499,"linesProcessedPerSecond":425444,"totalBytesProcessed":4559031,"totalLinesProcessed":17459,"execTime":0.041037,"queueTime":0.000086,"subqueries":0,"totalEntriesReturned":0,"splits":
-2026-05-17 16:12:15,570 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:15,777 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:16,831 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:20,524 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:21,416 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:22,038 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:26,419 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:27,795 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:31,053 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:32,015 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:32,985 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:35,713 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:36,026 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:37,473 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:12:40,471 INFO httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,006 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28container_cpu_usage_seconds_total%7Bnamespace%3D%22iotag-dev%22%2Ccontainer%21%3D%22%22%7D%5B5m%5D%29%29+by+%28pod%29 "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,018 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=histogram_quantile%280.99%2C+sum%28rate%28http_server_requests_seconds_bucket%7Bnamespace%3D%22iotag-dev%22%7D%5B5m%5D%29%29+by+%28le%2C+pod%2C+uri%29%29 "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,029 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28http_server_requests_seconds_count%7Bnamespace%3D%22iotag-dev%22%2Cstatus%3D~%225..%22%7D%5B5m%5D%29%29+by+%28pod%2C+uri%29 "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,037 INFO httpx HTTP Request: GET http://localhost:9090/api/v1/query?query=sum%28rate%28http_server_requests_seconds_count%7Bnamespace%3D%22iotag-dev%22%7D%5B1m%5D%29%29+by+%28pod%29 "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,038 INFO devops_agent.adapters.loki_adapter [GRAFANA-API] GET http://localhost:3100/loki/api/v1/query_range params={'query': '{namespace="iotag-dev"} |~ "(?i)(error|exception|fatal)" | logfmt | level=~"(error|ERROR|fatal|FATAL)"', 'start': '1779026647038339584', 'end': '1779027247038339584', 'limit': '500', 'direction': 'backward'}
-2026-05-17 16:14:07,090 INFO httpx HTTP Request: GET http://localhost:3100/loki/api/v1/query_range?query=%7Bnamespace%3D%22iotag-dev%22%7D+%7C~+%22%28%3Fi%29%28error%7Cexception%7Cfatal%29%22+%7C+logfmt+%7C+level%3D~%22%28error%7CERROR%7Cfatal%7CFATAL%29%22&start=1779026647038339584&end=1779027247038339584&limit=500&direction=backward "HTTP/1.1 200 OK"
-2026-05-17 16:14:07,091 INFO devops_agent.adapters.loki_adapter [GRAFANA-API] Response 200 {"status":"success","data":{"resultType":"streams","result":[],"stats":{"summary":{"bytesProcessedPerSecond":99017037,"linesProcessedPerSecond":380102,"totalBytesProcessed":4170096,"totalLinesProcessed":16008,"execTime":0.042115,"queueTime":0.00006,"subqueries":0,"totalEntriesReturned":0,"splits":0,
+2026-07-08 18:25:27,845 INFO devops_agent.monitors.github_pr_build_monitor [Thread-6 (_loop)] [PRBuildMonitor] Emitting event: AGH-iot-agent/iot-agent-login-screen PR#76 run#28965874702 branch=test/scenario_02_1783534978
+2026-07-08 18:25:29,293 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch start event_kind=github_pr_build_failure title=AGH-iot-agent/iot-agent-login-screen PR#76: build failed on test/scenario_02_1783534978 (run #28965874702) trace_id=watchdog-656529cd-1d41-46f8-a8eb-74e3c3d90c0e dry_run=False autoapply=False namespace=iotag-dev
+2026-07-08 18:25:29,829 INFO devops_agent.adapters.github_adapter [watchdog-dispatch_0] [GHAdapter] jobs fetched repo=AGH-iot-agent/iot-agent-login-screen run=28965874702 count=3 requested_job_id=0
+2026-07-08 18:25:32,174 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_0] [GRAFANA-API] GET http://localhost:3100/loki/api/v1/query_range params={'query': '{namespace="iotag-dev", app="login-screen-api"}', 'start': '1783534232174952192', 'end': '1783535132174952192', 'limit': '100', 'direction': 'backward'}
+2026-07-08 18:25:32,202 INFO httpx [watchdog-dispatch_0] HTTP Request: GET http://localhost:3100/loki/api/v1/query_range?query=%7Bnamespace%3D%22iotag-dev%22%2C+app%3D%22login-screen-api%22%7D&start=1783534232174952192&end=1783535132174952192&limit=100&direction=backward "HTTP/1.1 200 OK"
+2026-07-08 18:25:32,203 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_0] [GRAFANA-API] Response 200 {"status":"success","data":{"resultType":"streams","result":[],"stats":{"summary":{"bytesProcessedPerSecond":0,"linesProcessedPerSecond":0,"totalBytesProcessed":0,"totalLinesProcessed":0,"execTime":0.003609,"queueTime":0.000135,"subqueries":0,"totalEntriesReturned":0,"splits":2,"shards":2,"totalPost
+2026-07-08 18:25:32,220 INFO devops_agent.promptops.registry [watchdog-dispatch_0] Registered prompt variant ci_fixer_v1 (weight=1.00)
+2026-07-08 18:25:32,220 INFO devops_agent.promptops.registry [watchdog-dispatch_0] Registered prompt variant ci_fixer_v2 (weight=1.00)
+2026-07-08 18:25:35,660 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-08 18:25:35,670 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] repo=AGH-iot-agent/iot-agent-login-screen branch=test/scenario_02_1783534978 fix_attempt=0 manifest=True paths=['Helm/values-dev.yaml', 'Helm/values-sbx.yaml']
+2026-07-08 18:26:29,379 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-08 18:26:29,473 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] LLM response chars=13493
+2026-07-08 18:26:29,473 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] root_cause=? files=0 paths=[]
+2026-07-08 18:26:29,474 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] start proposal_files=0 paths=[] root_cause= chart_source=
+2026-07-08 18:26:29,474 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation passed=False errors=1
+2026-07-08 18:26:29,474 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation errors: ['No files in fix proposal - nothing to validate.']
+2026-07-08 18:26:29,474 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation result keys: ['details', 'errors', 'output', 'passed']
+2026-07-08 18:26:29,475 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] Validation failed (attempt 1/3) - retrying ci_fixer with error feedback
+2026-07-08 18:26:29,475 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] repo=AGH-iot-agent/iot-agent-login-screen branch=test/scenario_02_1783534978 fix_attempt=1 manifest=True paths=['Helm/values-dev.yaml', 'Helm/values-sbx.yaml']
+2026-07-08 18:27:21,921 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-08 18:27:21,933 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] LLM response chars=13507
+2026-07-08 18:27:21,933 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] root_cause=? files=0 paths=[]
+2026-07-08 18:27:21,933 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] start proposal_files=0 paths=[] root_cause= chart_source=
+2026-07-08 18:27:21,934 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation passed=False errors=1
+2026-07-08 18:27:21,934 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation errors: ['No files in fix proposal - nothing to validate.']
+2026-07-08 18:27:21,934 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation result keys: ['details', 'errors', 'output', 'passed']
+2026-07-08 18:27:21,934 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] Validation failed (attempt 2/3) - retrying ci_fixer with error feedback
+2026-07-08 18:27:21,934 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] repo=AGH-iot-agent/iot-agent-login-screen branch=test/scenario_02_1783534978 fix_attempt=2 manifest=True paths=['Helm/values-dev.yaml', 'Helm/values-sbx.yaml']
+2026-07-08 18:28:13,521 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-08 18:28:13,522 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] LLM response chars=13533
+2026-07-08 18:28:13,523 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] root_cause=? files=0 paths=[]
+2026-07-08 18:28:13,523 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] start proposal_files=0 paths=[] root_cause= chart_source=
+2026-07-08 18:28:13,524 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation passed=False errors=1
+2026-07-08 18:28:13,524 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation errors: ['No files in fix proposal - nothing to validate.']
+2026-07-08 18:28:13,524 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation result keys: ['details', 'errors', 'output', 'passed']
+2026-07-08 18:28:14,435 INFO devops_agent.nodes.pr_fix_commenter [watchdog-dispatch_0] [PR_FIX_COMMENTER] Comment posted on AGH-iot-agent/iot-agent-login-screen#76
+2026-07-08 18:28:14,443 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] No PR for github_pr_build_failure (AGH-iot-agent/iot-agent-login-screen PR#76: build failed on test/scenario_02_1783534978 (run #28965874702)) — blocked by failed validation
+2026-07-08 18:28:14,443 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch end event_kind=github_pr_build_failure title=AGH-iot-agent/iot-agent-login-screen PR#76: build failed on test/scenario_02_1783534978 (run #28965874702) trace_id=watchdog-656529cd-1d41-46f8-a8eb-74e3c3d90c0e mttr_s=165.150
+2026-07-11 13:38:40,913 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-07-11 13:38:40,914 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-07-11 13:38:40,927 INFO devops_agent.graph [MainThread] Creating LangGraph model and custom nodes
+2026-07-11 13:38:40,930 INFO devops_agent.graph [MainThread] LangGraph compilation completed
+2026-07-11 13:38:40,936 INFO devops_agent.main [MainThread] Active monitors: ['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-07-11 13:38:40,937 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=gh path=/usr/bin/gh reason=required for GitHub issue/PR/CI integration
+2026-07-11 13:38:40,937 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=kubectl path=/usr/local/bin/kubectl reason=required for Kubernetes monitor and validation flows
+2026-07-11 13:38:40,937 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=helm path=/usr/local/bin/helm reason=required for Helm validation and deployability checks
+2026-07-11 13:38:40,937 ERROR devops_agent.preflight [MainThread] [PREFLIGHT] dependency_missing name=smbclient reason=required for smb:// chart retrieval
+2026-07-11 13:38:40,947 INFO devops_agent.main [MainThread] Autostart watchdog: namespace=iotag-dev interval=30s active_monitors=['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-07-11 13:38:40,947 INFO devops_agent.watchdog [MainThread] [WATCHDOG] start: WatchdogConfig(namespace='iotag-dev', interval_seconds=30, monitor_github=True, github_org='AGH-iot-agent', issue_max_age_s=86400, monitor_github_issues=True, monitor_github_prs=True, monitor_github_ci=True, monitor_github_pr_builds=True, monitor_prometheus=False, monitor_loki=False, monitor_k8s=False)
+2026-07-11 13:41:15,117 INFO devops_agent.monitors.github_pr_build_monitor [Thread-6 (_loop)] [PRBuildMonitor] Emitting event: AGH-iot-agent/iot-agent-login-screen PR#77 run#29154697380 branch=test/scenario_02_1783777164
+2026-07-11 13:41:16,535 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch start event_kind=github_pr_build_failure title=AGH-iot-agent/iot-agent-login-screen PR#77: build failed on test/scenario_02_1783777164 (run #29154697380) trace_id=watchdog-43079856-25eb-4a80-89e4-9db7d1b6c650 dry_run=False autoapply=False namespace=iotag-dev
+2026-07-11 13:41:17,032 INFO devops_agent.adapters.github_adapter [watchdog-dispatch_0] [GHAdapter] jobs fetched repo=AGH-iot-agent/iot-agent-login-screen run=29154697380 count=3 requested_job_id=0
+2026-07-11 13:41:20,662 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_0] [GRAFANA-API] GET http://localhost:3100/loki/api/v1/query_range params={'query': '{namespace="iotag-dev", app="login-screen-api"}', 'start': '1783776380662413568', 'end': '1783777280662413568', 'limit': '100', 'direction': 'backward'}
+2026-07-11 13:41:20,687 WARNING devops_agent.mcp_adapter [watchdog-dispatch_0] MCPAdapter.run: loki/query_range — service unreachable ([Errno 111] Connection refused)
+2026-07-11 13:41:20,713 INFO devops_agent.promptops.registry [watchdog-dispatch_0] Registered prompt variant ci_fixer_v1 (weight=1.00)
+2026-07-11 13:41:20,714 INFO devops_agent.promptops.registry [watchdog-dispatch_0] Registered prompt variant ci_fixer_v2 (weight=1.00)
+2026-07-11 13:41:30,374 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 13:41:30,389 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] repo=AGH-iot-agent/iot-agent-login-screen branch=test/scenario_02_1783777164 fix_attempt=0 manifest=True paths=['Helm/values-dev.yaml', 'Helm/values-sbx.yaml']
+2026-07-11 13:42:38,375 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 13:42:38,469 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] LLM response chars=13523
+2026-07-11 13:42:38,470 WARNING devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] Parsed JSON missing expected keys — retrying
+2026-07-11 13:43:33,277 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 13:43:33,379 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] root_cause=? files=0 paths=[]
+2026-07-11 13:43:33,380 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] start proposal_files=0 paths=[] root_cause= chart_source=
+2026-07-11 13:43:59,689 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation passed=False errors=1
+2026-07-11 13:43:59,690 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation errors: ['No files in fix proposal - nothing to validate.']
+2026-07-11 13:43:59,690 WARNING devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] validation result keys: ['details', 'errors', 'output', 'passed']
+2026-07-11 13:43:59,691 INFO devops_agent.nodes.sandbox_validator [watchdog-dispatch_0] [SANDBOX] Validation failed (attempt 1/3) - retrying ci_fixer with error feedback
+2026-07-11 13:43:59,692 INFO devops_agent.nodes.ci_fixer [watchdog-dispatch_0] [CI_FIXER] repo=AGH-iot-agent/iot-agent-login-screen branch=test/scenario_02_1783777164 fix_attempt=1 manifest=True paths=['Helm/values-dev.yaml', 'Helm/values-sbx.yaml']
+2026-07-12 16:59:28,909 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-07-12 16:59:28,910 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-07-12 16:59:28,923 INFO devops_agent.graph [MainThread] Creating LangGraph model and custom nodes
+2026-07-12 16:59:28,927 INFO devops_agent.graph [MainThread] LangGraph compilation completed
+2026-07-12 16:59:28,933 INFO devops_agent.main [MainThread] Active monitors: ['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-07-12 16:59:28,934 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=gh path=/usr/bin/gh reason=required for GitHub issue/PR/CI integration
+2026-07-12 16:59:28,934 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=kubectl path=/usr/local/bin/kubectl reason=required for Kubernetes monitor and validation flows
+2026-07-12 16:59:28,934 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=helm path=/usr/local/bin/helm reason=required for Helm validation and deployability checks
+2026-07-12 16:59:28,934 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=smbclient path=/usr/bin/smbclient reason=required for smb:// chart retrieval
+2026-07-12 16:59:28,945 INFO devops_agent.main [MainThread] Autostart watchdog: namespace=iotag-dev interval=30s active_monitors=['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-07-12 16:59:28,945 INFO devops_agent.watchdog [MainThread] [WATCHDOG] start: WatchdogConfig(namespace='iotag-dev', interval_seconds=30, monitor_github=True, github_org='AGH-iot-agent', issue_max_age_s=86400, monitor_github_issues=True, monitor_github_prs=True, monitor_github_ci=True, monitor_github_pr_builds=True, monitor_prometheus=False, monitor_loki=False, monitor_k8s=False)

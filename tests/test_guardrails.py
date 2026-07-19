@@ -24,7 +24,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-_FAKE_OPENAI_KEY = "sk-" + "A" * 48                  # OpenAI token  → critical
+_FAKE_OPENAI_KEY = "sk-" + "A" * 48                   # OpenAI token  → critical
 _FAKE_AWS_KEY    = "AKIA" + "B" * 16                  # AWS AKID       → critical
 _FAKE_GHS_TOKEN  = "ghs_" + "C" * 36                  # GitHub app token → high (not critical)
 _FAKE_API_KEY    = "api_key=" + "D" * 24              # generic API key  → high (not critical)

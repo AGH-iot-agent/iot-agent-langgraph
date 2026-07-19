@@ -31,9 +31,7 @@ class GitHubPRBuildMonitor(BaseMonitor):
     def poll(self) -> list[AgentEvent]:
         events: list[AgentEvent] = []
         try:
-            resp = self._adapter.run(
-                "github", "list_org_repos", {"org": self._org, "limit": 200}, dry_run=False
-            )
+            resp = self._adapter.run("github", "list_org_repos", {"org": self._org, "limit": 200}, dry_run=False)
             repos = resp.get("repos", [])
         except Exception:
             logger.exception("[PRBuildMonitor] Failed to list org repos")

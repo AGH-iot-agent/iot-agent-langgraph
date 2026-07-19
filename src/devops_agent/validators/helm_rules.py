@@ -73,6 +73,37 @@ def _inject_ci_values_for_helm(values_text: str, service_name: str) -> str:
     return yaml.dump(merged, default_flow_style=False, allow_unicode=True)
 
 
+class LiteralDumper(yaml.SafeDumper):
+    pass
+
+
+def _repr_str(dumper, value):
+    if value == "":
+        return dumper.represent_scalar(
+            "tag:yaml.org,2002:str",
+            "",
+            style='"',
+        )
+    return dumper.represent_str(value)
+
+
+LiteralDumper.add_representer(str, _repr_str)
+
+def normalize_yaml_content(content: str) -> str:
+    """Strip comments, blank lines and formatting from YAML while preserving semantics."""
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+
+    return yaml.dump(
+        data,
+        Dumper=LiteralDumper,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    ).rstrip()
+    
 def validate_helm_values_file(
     adapter,
     *,
@@ -95,6 +126,7 @@ def validate_helm_values_file(
 
     base_text = fetch_base_text(adapter, repo, path, branch) or ""
     text_patched, snippet_found = apply_text_patch(base_text, original_snippet, content)
+    text_patched = normalize_yaml_content(text_patched)
 
     if original_snippet and not snippet_found:
         patch_meta["patchable"] = False

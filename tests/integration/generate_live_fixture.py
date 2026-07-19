@@ -1,4 +1,5 @@
-"""One-shot script to regenerate tests/integration/fixtures/pr71_execution_results.json.
+"""
+One-shot script to regenerate tests/integration/fixtures/pr71_execution_results.json.
 
 Run this whenever PR #71 or the target CI run changes and you need a fresh
 executor snapshot:
@@ -20,7 +21,6 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure src/ is on the path when run directly.
 _REPO_ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 

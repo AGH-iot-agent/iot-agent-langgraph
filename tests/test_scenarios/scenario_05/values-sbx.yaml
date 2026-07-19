@@ -1,0 +1,188 @@
+# Default values for a "deployment"
+
+# REQUIRED for you to set a value here, name of your service
+name: "iot-agent-alert-api"
+
+# Number of pods in deployment, default of not highly available (override on HA environments)
+replicaCount: 1
+
+# minReadySeconds
+minReadySeconds: false
+
+# Rollback limit
+revisionHistoryLimit: 10
+
+# The pod priority, to make things more critical
+# See: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+priorityClassName: ""
+
+# Share process namespace to allow sidecars to see each others processes.  You can use this feature to configure
+#    cooperating containers, such as a log handler sidecar container, or to troubleshoot container images that don't
+#    include debugging utilities like a shell.
+#
+# NOTE/WARNING: Enabling this may break certain containers that expect/demand their main process to be process #1.
+# See: https://kubernetes.io/docs/tasks/configure-pod-container/share-process-namespace/
+shareProcessNamespace: false
+
+# Image repository location (override if needed)
+image:
+  tag: ""
+  repository: ""
+  command: []
+  args: []
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# DEPRECATED / DO NOT USE, use podSecurityContext instead, this will be removed in a future release
+security:
+  runAsNonRoot: false
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Istio VirtualService definitions
+istio:
+  gateway:
+    createIfMissing: false
+    namespace: istio-system
+    name: istio-ingressgateway
+    selector:
+      istio: ingressgateway
+    port: 80
+    protocol: HTTP
+  virtualService:
+    enabled: true
+    name: "iot-agent-alert-api"
+    annotations: {}
+    hosts:
+      - iot-agent-alert-api-sbx.iotag-sbx.com
+    gateways:
+      - istio-system/istio-ingressgateway
+    http:
+      - match:
+          - uri:
+              prefix: /
+        route:
+          - destination:
+              host: iot-agent-alert-api.iotag-sbx.svc.cluster.local
+              port:
+                number: 80
+    # http: []
+
+# Ingress definitions
+ingress:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific
+  annotations: {}
+  hosts:
+    - host: iot-agent-alert-api-sbx.iotag-sbx
+      paths:
+        - /
+  tls: []
+
+# Secondary ingress definition
+ingress_secondary:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - /
+  tls: []
+
+# Service definitions
+service:
+  enabled: true
+  annotations: {}
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  name: default-service
+  additionalPorts: []
+
+additionalPorts: []
+
+podAnnotations: {}
+
+usingNewRecommendedLabels: false
+
+labels: {}
+
+labelsEnableDefault: true
+
+lifecycle: {}
+
+globalEnvs: []
+
+globalEnvsSecondary: []
+
+extraEnvs:
+  - name: SPRING_DATASOURCE_URL
+    value: jdbc:postgresql://iot-agent-postgres-postgresql:5432/iot_agent
+  - name: SPRING_DATASOURCE_USERNAME
+    value: gte
+  - name: SPRING_DATASOURCE_PASSWORD
+    value: gte
+  - name: JWT_SECRET
+    value: supersecretkey
+
+tty: false
+
+envFrom: []
+
+usingMemoryKibiBytesEnvs: false
+
+# livenessProbes are used to determine when to restart a container
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 120
+  periodSeconds: 10
+  timeoutSeconds: 9
+  successThreshold: 1
+  failureThreshold: 3
+  probeType: httpGet
+  scheme: HTTP
+  path: /actuator/health/liveness
+  port: default-service
+  command:
+    - ls -la /
+
+# readinessProbes are used to determine when a container is ready to start accepting traffic
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 4
+  successThreshold: 2
+  failureThreshold: 2
+  probeType: httpGet
+  scheme: HTTP
+  path: /actuator/health/readiness
+  port: default-service
+  command:
+    - ls -la /
+
+dnsConfig:
+  enabled: false
+  ndots: 6
+  options: []
+  searches: []
+  nameservers: []
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+initContainers: []
+
+extraContainers: []
