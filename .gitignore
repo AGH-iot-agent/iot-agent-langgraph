@@ -11,3 +11,5 @@ iot_Agent_langgraph.egg-info/
 ./logs/*
 .vscode/
 logs/
+venv/
+.dev_env.env

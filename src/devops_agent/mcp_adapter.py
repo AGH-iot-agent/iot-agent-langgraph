@@ -6,6 +6,7 @@ from typing import Any
 
 from devops_agent.adapters.k8s_adapter import K8sAdapter
 from devops_agent.adapters.prometheus_adapter import PrometheusAdapter
+from devops_agent.adapters.grafana_adapter import GrafanaAdapter
 from devops_agent.adapters.loki_adapter import LokiAdapter
 from devops_agent.adapters.github_adapter import GHAdapter
 from devops_agent.metrics import agent_metrics
@@ -17,6 +18,7 @@ _REGISTRY: dict[str, Any] = {}
 def _build_registry() -> dict[str, Any]:
     k8s  = K8sAdapter()
     prom = PrometheusAdapter()
+    grafana = GrafanaAdapter()
     loki = LokiAdapter()
     gh   = GHAdapter()
 
@@ -42,6 +44,12 @@ def _build_registry() -> dict[str, Any]:
         "prometheus": {
             "query":                prom.query,
             "query_range":          prom.query_range,
+        },
+        "grafana": {
+            "search_dashboards":    grafana.search_dashboards,
+            "get_dashboard":        grafana.get_dashboard,
+            "list_folders":         grafana.list_folders,
+            "import_dashboard":     grafana.import_dashboard,
         },
         "loki": {
             "query_range":          loki.query_range,

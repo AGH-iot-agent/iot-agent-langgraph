@@ -37,7 +37,8 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache
     "kubernetes>=29.0.0" \
     "httpx>=0.27.0" \
     "openai>=1.30.0" \
-    "paramiko>=3.4.0"
+    "paramiko>=3.4.0" \
+    "prometheus_client>=0.20.0"
 
 COPY src/ ./src/
 

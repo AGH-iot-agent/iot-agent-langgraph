@@ -14,6 +14,19 @@ from devops_agent.metrics import agent_metrics
 
 logger = logging.getLogger(__name__)
 
+WATCHDOG_DEFAULT_NAMESPACE                = os.environ.get("WATCHDOG_DEFAULT_NAMESPACE")
+WATCHDOG_DEFAULT_INTERVAL_SECONDS         = os.environ.get("WATCHDOG_DEFAULT_INTERVAL_SECONDS")
+WATCHDOG_DEFAULT_MONITOR_GITHUB           = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB")
+WATCHDOG_DEFAULT_GITHUB_ORG               = os.environ.get("WATCHDOG_DEFAULT_GITHUB_ORG")
+WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S          = os.environ.get("WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S")
+WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES    = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES")
+WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS       = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS")
+WATCHDOG_DEFAULT_MONITOR_GITHUB_CI        = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_CI")
+WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS")
+WATCHDOG_DEFAULT_MONITOR_PROMETHEUS       = os.environ.get("WATCHDOG_DEFAULT_MONITOR_PROMETHEUS")
+WATCHDOG_DEFAULT_MONITOR_LOKI             = os.environ.get("WATCHDOG_DEFAULT_MONITOR_LOKI")
+WATCHDOG_DEFAULT_MONITOR_K8S              = os.environ.get("WATCHDOG_DEFAULT_MONITOR_K8S")
+
 @dataclass
 class WatchdogResponse:
     status: str
@@ -22,18 +35,18 @@ class WatchdogResponse:
 
 @dataclass
 class WatchdogConfig:
-    namespace:                str  = "iotag-dev"
-    interval_seconds:         int  = 30
-    monitor_github:           bool = True
-    github_org:               str  = "AGH-iot-agent"
-    issue_max_age_s:          int  = 86400
-    monitor_github_issues:    bool = True
-    monitor_github_prs:       bool = True
-    monitor_github_ci:        bool = True
-    monitor_github_pr_builds: bool = True
-    monitor_prometheus:       bool = True
-    monitor_loki:             bool = True
-    monitor_k8s:              bool = True
+    namespace:                str  = WATCHDOG_DEFAULT_NAMESPACE 
+    interval_seconds:         int  = int(WATCHDOG_DEFAULT_INTERVAL_SECONDS)
+    monitor_github:           bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB)
+    github_org:               str  = WATCHDOG_DEFAULT_GITHUB_ORG
+    issue_max_age_s:          int  = int(WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S)
+    monitor_github_issues:    bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES)
+    monitor_github_prs:       bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS)
+    monitor_github_ci:        bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_CI)
+    monitor_github_pr_builds: bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS)
+    monitor_prometheus:       bool = bool(WATCHDOG_DEFAULT_MONITOR_PROMETHEUS)
+    monitor_loki:             bool = bool(WATCHDOG_DEFAULT_MONITOR_LOKI)
+    monitor_k8s:              bool = bool(WATCHDOG_DEFAULT_MONITOR_K8S)
 
 @dataclass
 class Alert:

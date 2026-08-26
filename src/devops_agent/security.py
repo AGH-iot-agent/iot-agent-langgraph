@@ -29,18 +29,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
-
 @dataclass
 class SecurityViolation:
-    threat_type: str   # one of the six classes above
-    severity: str      # low | medium | high | critical
+    threat_type: str   
+    severity: str      
     description: str
     matched_pattern: str = ""
-    field: str = ""    # which context triggered it
+    field: str = "" 
 
 
 @dataclass
@@ -53,11 +48,6 @@ class SecurityScanResult:
         return any(v.severity in levels for v in self.violations)
 
 
-# ---------------------------------------------------------------------------
-# Security patterns
-# ---------------------------------------------------------------------------
-
-# (regex, severity)
 _PROMPT_INJECTION_PATTERNS: list[tuple[str, str]] = [
     (r"ignore\s+(all\s+)?previous\s+instructions",        "high"),
     (r"disregard\s+(all\s+)?previous\s+instructions",     "high"),
@@ -71,10 +61,8 @@ _PROMPT_INJECTION_PATTERNS: list[tuple[str, str]] = [
     (r"you\s+are\s+now\s+(a|an)\s+",                     "medium"),
     (r"from\s+now\s+on\s+you\s+(are|will)\s+",           "high"),
     (r"your\s+new\s+(role|persona|task|purpose)\s+is",   "high"),
-    # Attempts to extract the system prompt
     (r"(print|reveal|show|repeat|output)\s+(your\s+)?(system\s+prompt|instructions|initial\s+prompt|configuration)", "high"),
     (r"what\s+(are\s+)?(your\s+)?(instructions|system\s+prompt|rules)",  "medium"),
-    # Classic indirect injection tokens seen in tool outputs (GitHub issues, Loki logs, etc.)
     (r"assistant\s*:\s*i\s+will\s+now",                  "high"),
     (r"\[\s*system\s*\]",                                 "high"),
     (r"\[INST\].*?\[/INST\]",                             "high"),
@@ -98,35 +86,26 @@ _JAILBREAK_PATTERNS: list[tuple[str, str]] = [
     (r"pretend\s+(you\s+are|to\s+be)\s+.{0,40}(unethical|evil|hacker|malicious)", "high"),
 ]
 
-# (regex, threat_type, severity)
 _SECRET_PATTERNS: list[tuple[str, str, str]] = [
-    # Generic key/secret assignments
     (r"(?i)(api[_\-]?key|apikey)\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{20,}", "secret_leakage", "high"),
     (r"(?i)(secret[_\-]?key|secretkey)\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{20,}", "secret_leakage", "high"),
     (r"(?i)(access[_\-]?token|accesstoken)\s*[=:]\s*['\"]?[A-Za-z0-9_\-\.]{20,}", "secret_leakage", "high"),
     (r"(?i)(password|passwd|pwd)\s*[=:]\s*['\"]?[^\s'\"]{8,}", "secret_leakage", "high"),
     (r"(?i)(private[_\-]?key)\s*[=:]\s*['\"]?[A-Za-z0-9_\-\.]{20,}", "secret_leakage", "critical"),
-    # PEM private keys
     (r"-----BEGIN\s+(RSA\s+|EC\s+|DSA\s+|OPENSSH\s+)?PRIVATE KEY-----", "secret_leakage", "critical"),
-    # Well-known token formats
-    (r"\bAKIA[0-9A-Z]{16}\b",                                         "secret_leakage", "critical"),   # AWS AKID
+    (r"\bAKIA[0-9A-Z]{16}\b",                                         "secret_leakage", "critical"),   
     (r"\bsk-[A-Za-z0-9]{32,}\b",                                          "secret_leakage", "critical"),   # OpenAI
     (r"\bghp_[A-Za-z0-9]{36}\b",                                      "secret_leakage", "critical"),   # GitHub PAT
     (r"\bghs_[A-Za-z0-9]{36}\b",                                      "secret_leakage", "high"),       # GitHub app token
     (r"\bxoxb-[0-9]{11}-[0-9]{11}-[A-Za-z0-9]{24}\b",                "secret_leakage", "critical"),   # Slack bot
-    # JWT (three base64 segments separated by dots — long enough to be real)
     (r"eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}", "secret_leakage", "high"),
-    # Generic Bearer tokens
     (r"(?i)\bbearer\s+[A-Za-z0-9_\-\.]{30,}", "secret_leakage", "medium"),
-    # Database connection strings with embedded credentials
     (r"(?i)postgres(ql)?://[^@\s]+:[^@\s]+@",   "secret_leakage", "critical"),
     (r"(?i)mysql://[^@\s]+:[^@\s]+@",            "secret_leakage", "critical"),
     (r"(?i)mongodb(\+srv)?://[^@\s]+:[^@\s]+@",  "secret_leakage", "critical"),
     (r"(?i)redis://:[^@\s]+@",                   "secret_leakage", "high"),
 ]
 
-# (regex, pii_type, severity)  – IP addresses excluded because they are
-# legitimate in Kubernetes contexts.
 _PII_PATTERNS: list[tuple[str, str, str]] = [
     (r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", "email",       "medium"),
     (r"\b(\+\d{1,3}[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}\b",       "phone",       "medium"),
@@ -136,7 +115,6 @@ _PII_PATTERNS: list[tuple[str, str, str]] = [
     (r"\b3[47][0-9]{13}\b",                                                    "credit_card", "critical"),  # Amex
 ]
 
-# (regex, severity) – applied to serialised tool arguments
 _DANGEROUS_ARG_PATTERNS: list[tuple[str, str]] = [
     (r"rm\s+-[rf]{1,2}",                    "critical"),
     (r"kubectl\s+delete\s+all",             "critical"),
@@ -158,8 +136,6 @@ _DANGEROUS_ARG_PATTERNS: list[tuple[str, str]] = [
     (r"\bformat\s+[Cc]:\b",                "critical"),   # Windows disk format
 ]
 
-# Allowed external host patterns for data-exfiltration checks.
-# Tool arguments should only reference these hosts.
 _ALLOWED_HOSTS_RE = re.compile(
     r"https?://(localhost|127\.0\.0\.1|"
     r"[\w\-]+\.svc(\.cluster\.local)?|"          # Kubernetes internal
@@ -172,7 +148,6 @@ _ALLOWED_HOSTS_RE = re.compile(
 )
 _ANY_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 
-# Canonical set of tools this agent is allowed to call.
 _ALLOWED_TOOL_NAMES: frozenset[str] = frozenset({
     "k8s_get_pods",
     "k8s_describe_pod",
@@ -192,11 +167,6 @@ _ALLOWED_TOOL_NAMES: frozenset[str] = frozenset({
     "gh_create_pr",
 })
 
-
-# ---------------------------------------------------------------------------
-# SecurityLayer
-# ---------------------------------------------------------------------------
-
 class SecurityLayer:
     """
     All six threat classes are covered by four scan methods:
@@ -208,9 +178,6 @@ class SecurityLayer:
                           + secret_leakage in tool responses
     """
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
 
     def scan_input(self, text: str, source: str = "user_input") -> SecurityScanResult:
         """
@@ -297,7 +264,6 @@ class SecurityLayer:
         violations: list[SecurityViolation] = []
         args_str = str(tool_args)
 
-        # 1. Tool-name allowlist
         if tool_name not in _ALLOWED_TOOL_NAMES:
             violations.append(SecurityViolation(
                 threat_type="malicious_tool_call",
@@ -307,7 +273,6 @@ class SecurityLayer:
             ))
             logger.error("[SECURITY] malicious_tool_call — unknown tool '%s'", tool_name)
 
-        # 2. Dangerous argument patterns
         for pattern, severity in _DANGEROUS_ARG_PATTERNS:
             if re.search(pattern, args_str, re.IGNORECASE | re.DOTALL):
                 violations.append(SecurityViolation(
@@ -322,7 +287,6 @@ class SecurityLayer:
                     severity, tool_name, pattern,
                 )
 
-        # 3. Data exfiltration — unauthorised external URLs in args
         for url in _ANY_URL_RE.findall(args_str):
             if not _ALLOWED_HOSTS_RE.match(url):
                 violations.append(SecurityViolation(
@@ -356,10 +320,6 @@ class SecurityLayer:
 
         return SecurityScanResult(is_safe=is_safe, violations=combined, sanitized_text=sanitized)
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _neutralise_injections(text: str) -> str:
         """Replace injection trigger phrases with a neutral placeholder."""
@@ -383,10 +343,5 @@ class SecurityLayer:
             }
             for v in violations
         ]
-
-
-# ---------------------------------------------------------------------------
-# Module-level singleton
-# ---------------------------------------------------------------------------
 
 security_layer = SecurityLayer()

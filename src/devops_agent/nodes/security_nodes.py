@@ -27,10 +27,6 @@ from devops_agent.state import AgentState
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Input security node (entry gate)
-# ---------------------------------------------------------------------------
-
 def security_input_node(state: AgentState) -> AgentState:
     """
     Scan the incoming request for prompt injection and jailbreak attempts.
@@ -62,9 +58,6 @@ def security_input_node(state: AgentState) -> AgentState:
                 "[SECURITY] Input blocked at entry. source=%s violations=%s",
                 source, [v["threat_type"] for v in SecurityLayer.violations_to_dicts(result.violations)],
             )
-            # Replace the offending field with the sanitised version to avoid
-            # forwarding injection payloads even when the run is not halted
-            # for lower-severity matches.
             if source == "user_request":
                 state = {**state, "request": result.sanitized_text}  # type: ignore[assignment]
             elif source == "issue_body":
@@ -86,10 +79,6 @@ def route_after_security_input(state: AgentState) -> Literal["planner", "finaliz
     return "planner"
 
 
-# ---------------------------------------------------------------------------
-# Output security node (exit sanitizer)
-# ---------------------------------------------------------------------------
-
 def security_output_node(state: AgentState) -> AgentState:
     """
     Sanitise ``final_summary`` and ``execution_summary`` before they leave
@@ -107,17 +96,14 @@ def security_output_node(state: AgentState) -> AgentState:
         if not text:
             continue
 
-        # Pass 1 – fast regex scan (always available)
         regex_result = security_layer.scan_output(text)
         text_after_regex = regex_result.sanitized_text
         field_violations = list(regex_result.violations)
 
-        # Pass 2 – deep Guardrails AI scan (Presidio PII + detect-secrets)
-        # Operates on the already regex-sanitised text to avoid double reporting.
         guard_result = run_output_guard(text_after_regex)
         if not guard_result.is_safe:
             field_violations.extend(guard_result.violations)
-        # Use Guard-sanitised text if it performed additional redactions
+
         final_text = guard_result.sanitized_text if guard_result.sanitized_text else text_after_regex
 
         if field_violations:
@@ -127,7 +113,6 @@ def security_output_node(state: AgentState) -> AgentState:
                 field_name,
                 [v["threat_type"] for v in SecurityLayer.violations_to_dicts(field_violations)],
             )
-        # Always store the (possibly sanitised) version
         updates[field_name] = final_text
 
     return {

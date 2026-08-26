@@ -61,7 +61,13 @@ class K8sAdapter:
             return {"status": "error", "message": str(e)}
         
     def _env(self) -> dict[str, str]:
-        return {**os.environ, "KUBECONFIG": self.kubeconfig}
+        env = dict(os.environ)
+        kubeconfig = self.kubeconfig or env.get("KUBECONFIG")
+        if kubeconfig is not None:
+            env["KUBECONFIG"] = kubeconfig
+        else:
+            env.pop("KUBECONFIG", None)
+        return env
 
     def get_pod(self, pod_name: str, namespace: str = "default") -> dict[str, Any]:
         cmd = ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "json"]

@@ -7,6 +7,79 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from prometheus_client import Counter, Histogram
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics – LangGraph agent telemetry
+# ---------------------------------------------------------------------------
+
+_LABEL_EVENT_KIND = ["event_kind"]
+
+PROM_RUNS_TOTAL = Counter(
+    "iotag_runs_total",
+    "Total number of agent graph runs",
+    _LABEL_EVENT_KIND,
+)
+PROM_MTTR_SECONDS = Histogram(
+    "iotag_mttr_seconds",
+    "Mean Time To Remediate – seconds from event detection to graph completion",
+    _LABEL_EVENT_KIND,
+    buckets=[5, 10, 20, 30, 60, 90, 120, 180, 300, 600],
+)
+PROM_INPUT_TOKENS_TOTAL = Counter(
+    "iotag_input_tokens_total",
+    "Total LLM input tokens consumed across all runs",
+    _LABEL_EVENT_KIND,
+)
+PROM_OUTPUT_TOKENS_TOTAL = Counter(
+    "iotag_output_tokens_total",
+    "Total LLM output tokens produced across all runs",
+    _LABEL_EVENT_KIND,
+)
+PROM_TOTAL_TOKENS_TOTAL = Counter(
+    "iotag_total_tokens_total",
+    "Total LLM tokens (input + output) across all runs",
+    _LABEL_EVENT_KIND,
+)
+PROM_PLAN_STEPS = Histogram(
+    "iotag_plan_steps",
+    "Number of plan steps generated per run",
+    _LABEL_EVENT_KIND,
+    buckets=[1, 2, 3, 5, 7, 10, 15, 20],
+)
+PROM_TOOL_CALL_ROUNDS = Histogram(
+    "iotag_tool_call_rounds",
+    "Number of tool-call rounds per run",
+    _LABEL_EVENT_KIND,
+    buckets=[1, 2, 3, 4, 5, 6, 8, 10, 15],
+)
+PROM_REVISION_COUNT = Histogram(
+    "iotag_revision_count",
+    "Number of plan revisions per run",
+    _LABEL_EVENT_KIND,
+    buckets=[0, 1, 2, 3, 5],
+)
+PROM_VALIDATION_TOTAL = Counter(
+    "iotag_validation_total",
+    "Sandbox validation outcomes",
+    ["event_kind", "result"],           # result: passed | failed
+)
+PROM_PR_CREATED_TOTAL = Counter(
+    "iotag_pr_created_total",
+    "Total number of pull-requests opened by the agent",
+    _LABEL_EVENT_KIND,
+)
+PROM_SLO_VIOLATIONS_TOTAL = Counter(
+    "iotag_slo_violations_total",
+    "SLO violations detected during runs",
+    ["event_kind", "metric"],           # metric: mttr_s | input_tokens | tool_call_rounds
+)
+PROM_SECURITY_VIOLATIONS_TOTAL = Counter(
+    "iotag_security_violations_total",
+    "Security violations detected during runs (threat-type label)",
+    ["threat_type"],
+)
+
 _SLO: dict[str, dict[str, float | int]] = {
     "github_issue": {"mttr_s": 90,  "input_tokens": 8000,  "tool_call_rounds": 6},
     "github_ci_failure":    {"mttr_s": 120, "input_tokens": 12000, "tool_call_rounds": 8},
@@ -114,6 +187,27 @@ class AgentMetrics:
             validation_passed=bool(payload.get("validation_passed", False)),
             pr_created=bool(payload.get("pr_created", False)),
         )
+
+        # -- Prometheus counters / histograms --------------------------------
+        kind = event.event_kind or "unknown"
+        PROM_RUNS_TOTAL.labels(event_kind=kind).inc()
+        PROM_MTTR_SECONDS.labels(event_kind=kind).observe(event.mttr_s)
+        PROM_INPUT_TOKENS_TOTAL.labels(event_kind=kind).inc(event.input_tokens)
+        PROM_OUTPUT_TOKENS_TOTAL.labels(event_kind=kind).inc(event.output_tokens)
+        PROM_TOTAL_TOKENS_TOTAL.labels(event_kind=kind).inc(event.total_tokens)
+        PROM_PLAN_STEPS.labels(event_kind=kind).observe(event.plan_step_count)
+        PROM_TOOL_CALL_ROUNDS.labels(event_kind=kind).observe(event.tool_call_rounds)
+        PROM_REVISION_COUNT.labels(event_kind=kind).observe(event.revision_count)
+        PROM_VALIDATION_TOTAL.labels(
+            event_kind=kind,
+            result="passed" if event.validation_passed else "failed",
+        ).inc()
+        if event.pr_created:
+            PROM_PR_CREATED_TOTAL.labels(event_kind=kind).inc()
+        for violation in _slo_violations(event):
+            metric_name = violation.split(" ")[0]
+            PROM_SLO_VIOLATIONS_TOTAL.labels(event_kind=kind, metric=metric_name).inc()
+        # --------------------------------------------------------------------
 
         with self._lock:
             self._events.append(event)
@@ -240,3 +334,8 @@ class AgentMetrics:
 
 
 agent_metrics = AgentMetrics()
+
+
+def record_security_violation(threat_type: str) -> None:
+    """Inkrementuje licznik Prometheus dla naruszeń bezpieczeństwa."""
+    PROM_SECURITY_VIOLATIONS_TOTAL.labels(threat_type=threat_type or "unknown").inc()

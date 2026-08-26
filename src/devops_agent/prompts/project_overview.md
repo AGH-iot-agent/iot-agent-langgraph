@@ -55,7 +55,8 @@
 - **Prometheus:**  
   - Zbieranie metryk z serwisów, K8s, Istio.
 - **Grafana:**  
-  - Dashboardy, wizualizacja metryk.
+  - Dashboardy dla API i komponentów platformy, wizualizacja metryk.
+  - Przykładowe pulpity: gateway-api, alert-api, login-screen, logs, stream-worker.
 - **Loki:**  
   - Centralne logowanie, agregacja logów z podów.
 - **Alertmanager:**  

@@ -12,14 +12,15 @@ from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
+import prometheus_client
 
 from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
 from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor, ResourceQuotaMonitor, DiskPressureMonitor
-from devops_agent.metrics import agent_metrics, load_manual_baselines
+from devops_agent.metrics import agent_metrics, load_manual_baselines, record_security_violation
 from devops_agent.preflight import log_runtime_preflight, runtime_preflight_report
 from dotenv import load_dotenv
 
@@ -349,6 +350,7 @@ def run_agent(payload: RunRequest) -> dict:
             "[SECURITY] %d violation(s) recorded during run. blocked=%s",
             len(security_violations), security_blocked,
         )
+        _record_security_prom(security_violations)
 
     response = dict(result)
     response["security"] = {
@@ -472,3 +474,32 @@ def metrics_export(format: str = Query(default="json", pattern="^(json|csv)$")) 
         )
 
     return {"status": "ok", "count": len(events), "events": events}
+
+
+@app.get("/metrics", response_class=Response)
+def metrics_prometheus() -> Response:
+    """Metryki Prometheus: tokeny, MTTR, liczba planów, naruszenia bezpieczeństwa.
+
+    Endpoint scraped przez Prometheus / ServiceMonitor.
+    Content-Type: text/plain; version=0.0.4; charset=utf-8
+    """
+    data = prometheus_client.generate_latest()
+    return Response(
+        content=data,
+        media_type=prometheus_client.CONTENT_TYPE_LATEST,
+    )
+
+
+@app.get("/alerts")
+def alerts(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+    """Lista aktywnych zdarzeń emitowanych przez monitory (wymagana przez tabelę 4.2)."""
+    alert_list = watchdog.recent_alerts(limit=limit)
+    logger.info("GET /alerts: %d alerts returned", len(alert_list))
+    return {"status": "ok", "count": len(alert_list), "alerts": alert_list}
+
+
+# Hook: rejestruj naruszenia bezpieczeństwa w Prometheus po każdym /run
+def _record_security_prom(security_violations: list[dict[str, str]]) -> None:
+    for v in security_violations:
+        threat = v.get("threat_type", "unknown")
+        record_security_violation(threat)

@@ -27,7 +27,7 @@
 - Plan/apply z rygorystycznym approval gate.
 
 3. Monitoring MCP (Prometheus/Grafana)
-- Walidacja SLO po wdrozeniu.
+- Walidacja SLO po wdrozeniu, przeglad i import dashboardow API w Grafanie.
 
 4. Komunikacja MCP (Slack/Jira)
 - Notyfikacje i automatyczne tickety incydentowe.

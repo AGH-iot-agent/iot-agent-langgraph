@@ -3,7 +3,7 @@
 export $(grep -v '^#' .env | xargs)
 
 OWNER=AGH-iot-agent
-REPO=iot-agent-stream-worker
+REPO=iot-agent-login-screen
 
 # Close all open test PRs for scenario 07
 gh pr list --repo ${OWNER}/${REPO} --state open --search "scenario 07" --json number,headRefName | \

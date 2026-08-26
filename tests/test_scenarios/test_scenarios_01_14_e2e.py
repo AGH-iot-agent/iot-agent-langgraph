@@ -118,7 +118,7 @@ PR_SCENARIO_SPECS: dict[str, dict[str, str]] = {
         "branch_prefix": "test/scenario_05_",
     },
     "07": {
-        "repo": "AGH-iot-agent/iot-agent-stream-worker",
+        "repo": "AGH-iot-agent/iot-agent-login-screen",
         "script": "scenario_07.sh",
         "branch_prefix": "test/scenario_07_",
     },
@@ -556,7 +556,7 @@ def test_find_new_pr_number_filters_by_branch_prefix() -> None:
 
     number = _find_new_pr_number(
         adapter=_Adapter(),
-        repo="AGH-iot-agent/iot-agent-stream-worker",
+        repo="AGH-iot-agent/iot-agent-login-screen",
         before={11},
         branch_prefix="test/scenario_07_",
     )
@@ -661,8 +661,8 @@ def test_list_open_prs_handles_api_error_and_non_dict_entries() -> None:
                 ],
             }
 
-    assert _list_open_prs(_AdapterError(), "AGH-iot-agent/iot-agent-stream-worker") == []
-    assert _list_open_prs(_AdapterMixed(), "AGH-iot-agent/iot-agent-stream-worker") == [
+    assert _list_open_prs(_AdapterError(), "AGH-iot-agent/iot-agent-login-screen") == []
+    assert _list_open_prs(_AdapterMixed(), "AGH-iot-agent/iot-agent-login-screen") == [
         {"number": 10},
         {"number": 11},
     ]
@@ -681,7 +681,7 @@ def test_pr_has_bot_comment_requires_marker_prefix() -> None:
 
     assert _pr_has_bot_comment(
         _Adapter(),
-        repo="AGH-iot-agent/iot-agent-stream-worker",
+        repo="AGH-iot-agent/iot-agent-login-screen",
         pr_number=10,
     )
 
