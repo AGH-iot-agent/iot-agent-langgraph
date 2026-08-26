@@ -16,7 +16,11 @@ def _normalize_base_url(value: str | None, default: str = "") -> str:
     if value is None:
         value = default
     value = str(value).strip()
-    return value.rstrip("/") if value else ""
+    if not value:
+        return ""
+    if "://" not in value:
+        value = f"http://{value.lstrip('/')}"
+    return value.rstrip("/")
 
 
 LOKI_URL_DEFAULT     = _normalize_base_url(os.getenv("LOKI_URL"))
