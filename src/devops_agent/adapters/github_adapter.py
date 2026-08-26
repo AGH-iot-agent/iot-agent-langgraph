@@ -22,11 +22,46 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GHAdapter:
+    def _gh_auth_error(self) -> str | None:
+        if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+            return None
+
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "status"],
+                capture_output=True,
+                text=True,
+                env=os.environ,
+                timeout=10,
+            )
+        except FileNotFoundError:
+            return "GitHub CLI is not installed."
+        except Exception as exc:  # pragma: no cover - defensive branch
+            return f"Unable to check GitHub CLI auth: {exc}"
+
+        if result.returncode == 0:
+            return None
+
+        stderr = (result.stderr or result.stdout or "").strip()
+        if stderr:
+            return stderr
+        return "GitHub CLI is not authenticated. Set GH_TOKEN or run `gh auth login`."
+
+    def _run_gh(self, cmd: list[str], *, input_payload: str | None = None) -> subprocess.CompletedProcess[str]:
+        auth_error = self._gh_auth_error()
+        if auth_error:
+            raise RuntimeError(auth_error)
+
+        kwargs: dict[str, Any] = {"capture_output": True, "text": True, "env": os.environ}
+        if input_payload is not None:
+            kwargs["input"] = input_payload
+        return subprocess.run(cmd, **kwargs)
+
     def get_issue_comments(self, repo: str, issue_number: int) -> dict[str, Any]:
         cmd = ["gh", "api", f"/repos/{repo}/issues/{issue_number}/comments"]
         logger.debug("[GHAdapter] Getting comments for issue #%d in %s", issue_number, repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get comments for issue #%d in %s: %s", issue_number, repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -50,7 +85,7 @@ class GHAdapter:
         cmd = ["gh", "repo", "view", repo, "--json", "defaultBranchRef"]
         logger.debug("[GHAdapter] Getting repo tree for %s at ref %s", repo, ref)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get repo info for %s: %s", repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -60,7 +95,7 @@ class GHAdapter:
             ref = ref or default_branch
 
             cmd_tree = ["gh", "api", f"/repos/{repo}/git/trees/{ref}?recursive=1"]
-            result_tree = subprocess.run(cmd_tree, capture_output=True, text=True, env=os.environ)
+            result_tree = self._run_gh(cmd_tree)
             if result_tree.returncode != 0:
                 logger.error("[GHAdapter] Failed to get repo tree for %s at ref %s: %s", repo, ref, result_tree.stderr)
                 return {"status": "error", "message": result_tree.stderr}
@@ -87,7 +122,7 @@ class GHAdapter:
 
     def _get_file_at_ref(self, repo: str, path: str, ref: str) -> dict[str, Any]:
         cmd = ["gh", "api", f"/repos/{repo}/contents/{path}?ref={ref}"]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+        result = self._run_gh(cmd)
         if result.returncode != 0:
             return {"status": "error", "message": result.stderr, "not_found": (
                 "404" in result.stderr or "No commit found" in result.stderr
@@ -121,7 +156,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/search/code?q={query}+repo:{repo}"]
         logger.debug("[GHAdapter] Searching code in %s with query '%s'", repo, query)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to search code in %s with query '%s': %s", repo, query, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -138,7 +173,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/commits?path={path}&sha={ref}"]
         logger.debug("[GHAdapter] Getting commit history for %s/%s at ref %s", repo, path, ref)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get commit history for %s/%s at ref %s: %s", repo, path, ref, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -154,7 +189,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/orgs/{org}/repos"]
         logger.debug("[GHAdapter] Listing repos for org %s with limit %d", org, limit)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to list repos for org %s with limit %d: %s", org, limit, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -177,7 +212,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/pulls?state={state}"]
         logger.debug("[GHAdapter] Listing pull requests for %s with state '%s'", repo, state)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to list pull requests for %s with state '%s': %s", repo, state, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -193,7 +228,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/pulls/{pr_number}"]
         logger.debug("[GHAdapter] Getting pull request #%d for %s", pr_number, repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get pull request #%d for %s: %s", pr_number, repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -211,7 +246,7 @@ class GHAdapter:
             payload["labels"] = labels
         logger.debug("[GHAdapter] Creating issue in %s with title '%s'", repo, title)
         try:
-            result = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=json.dumps(payload))
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to create issue in %s with title '%s': %s", repo, title, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -227,7 +262,7 @@ class GHAdapter:
         payload = {"state": state}
         logger.debug("[GHAdapter] Updating issue #%d in %s to state '%s'", issue_number, repo, state)
         try:
-            result = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=json.dumps(payload))
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to update issue #%d in %s to state '%s': %s", issue_number, repo, state, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -241,7 +276,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/issues?state={state}"]
         logger.debug("[GHAdapter] Listing issues for %s with state '%s'", repo, state)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to list issues for %s with state '%s': %s", repo, state, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -257,7 +292,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/issues/{issue_number}"]
         logger.debug("[GHAdapter] Getting issue #%d for %s", issue_number, repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get issue #%d for %s: %s", issue_number, repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -277,7 +312,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/issues/{issue_number}/comments", "--method", "POST", "--input", "-"]
         logger.debug("[GHAdapter] Creating comment on issue #%d for %s", issue_number, repo)
         try:
-            result = subprocess.run(cmd, input=json.dumps({"body": body}), capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=json.dumps({"body": body}))
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to create comment on issue #%d for %s: %s", issue_number, repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -291,7 +326,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/issues/comments/{comment_id}", "--method", "DELETE"]
         logger.debug("[GHAdapter] Deleting comment #%d for %s", comment_id, repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to delete comment #%d for %s: %s", comment_id, repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -312,7 +347,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/actions/workflows"]
         logger.debug("[GHAdapter] Listing workflows for %s", repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to list workflows for %s: %s", repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -331,7 +366,7 @@ class GHAdapter:
         cmd = ["gh", "api", url]
         logger.debug("[GHAdapter] Getting workflow runs for %s per_page=%d status='%s'", repo, per_page, status)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 logger.error("[GHAdapter] Failed to get workflow runs for %s: %s", repo, result.stderr)
                 return {"status": "error", "message": result.stderr}
@@ -347,7 +382,7 @@ class GHAdapter:
         jobs_cmd = ["gh", "api", f"/repos/{repo}/actions/runs/{run_id}/jobs"]
         logger.debug("[GHAdapter] Getting job logs for %s run %d job %d", repo, run_id, job_id)
         try:
-            jobs_result = subprocess.run(jobs_cmd, capture_output=True, text=True, env=os.environ)
+            jobs_result = self._run_gh(jobs_cmd)
             if jobs_result.returncode != 0:
                 return {"status": "error", "message": jobs_result.stderr}
             jobs_json = json.loads(jobs_result.stdout)
@@ -389,7 +424,7 @@ class GHAdapter:
                 return {"status": "ok", "logs": "", "message": "No jobs found"}
             actual_job_id = target["id"]
             logs_cmd = ["gh", "api", f"/repos/{repo}/actions/jobs/{actual_job_id}/logs"]
-            logs_result = subprocess.run(logs_cmd, capture_output=True, text=True, env=os.environ)
+            logs_result = self._run_gh(logs_cmd)
             logger.debug("[GHAdapter] Got job logs for %s run %d job %d", repo, run_id, actual_job_id)
             return {"status": "ok", "job": target, "logs": logs_result.stdout[-8000:]}  # cap at 8KB
         except Exception as e:
@@ -401,7 +436,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/issues/{pr_number}/comments"]
         logger.debug("[GHAdapter] Getting PR comments for %s#%d", repo, pr_number)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok", "comments": json.loads(result.stdout)}
@@ -415,7 +450,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/git/refs/heads/{branch}"]
         logger.debug("[GHAdapter] Getting SHA for %s@%s", repo, branch)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             data = json.loads(result.stdout)
@@ -435,7 +470,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/git/refs", "--method", "POST", "--input", "-"]
         logger.info("[GHAdapter] Creating branch %s on %s from %s", branch_name, repo, from_sha[:12])
         try:
-            result = subprocess.run(cmd, input=payload, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=payload)
             if result.returncode != 0:
                 # 422 = branch already exists — treat as ok
                 if "already exists" in result.stderr or "422" in result.stderr:
@@ -453,7 +488,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/pulls/{pr_number}", "--method", "PATCH", "--input", "-"]
         logger.info("[GHAdapter] Closing PR #%d on %s", pr_number, repo)
         try:
-            result = subprocess.run(cmd, input=payload, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=payload)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok"}
@@ -466,7 +501,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/git/refs/heads/{branch_name}", "--method", "DELETE"]
         logger.info("[GHAdapter] Deleting branch %s on %s", branch_name, repo)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok"}
@@ -495,7 +530,7 @@ class GHAdapter:
             if check.get("status") == "ok":
                 check_cmd = ["gh", "api", f"/repos/{repo}/contents/{path}?ref={branch}"]
                 try:
-                    r = subprocess.run(check_cmd, capture_output=True, text=True, env=os.environ)
+                    r = self._run_gh(check_cmd)
                     if r.returncode == 0:
                         file_json = json.loads(r.stdout)
                         payload["sha"] = file_json.get("sha", "")
@@ -505,9 +540,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/contents/{path}", "--method", "PUT", "--input", "-"]
         logger.info("[GHAdapter] Committing %s on %s@%s", path, repo, branch)
         try:
-            result = subprocess.run(
-                cmd, input=json.dumps(payload), capture_output=True, text=True, env=os.environ
-            )
+            result = self._run_gh(cmd, input_payload=json.dumps(payload))
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             return {"status": "ok"}
@@ -530,7 +563,7 @@ class GHAdapter:
         cmd = ["gh", "api", f"/repos/{repo}/pulls", "--method", "POST", "--input", "-"]
         logger.info("[GHAdapter] Creating PR '%s' on %s (%s → %s)", title, repo, branch, base)
         try:
-            result = subprocess.run(cmd, input=payload, capture_output=True, text=True, env=os.environ)
+            result = self._run_gh(cmd, input_payload=payload)
             if result.returncode != 0:
                 return {"status": "error", "message": result.stderr}
             pr_json = json.loads(result.stdout)
