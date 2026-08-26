@@ -78,3 +78,243 @@
 2026-07-12 16:59:28,934 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=smbclient path=/usr/bin/smbclient reason=required for smb:// chart retrieval
 2026-07-12 16:59:28,945 INFO devops_agent.main [MainThread] Autostart watchdog: namespace=iotag-dev interval=30s active_monitors=['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
 2026-07-12 16:59:28,945 INFO devops_agent.watchdog [MainThread] [WATCHDOG] start: WatchdogConfig(namespace='iotag-dev', interval_seconds=30, monitor_github=True, github_org='AGH-iot-agent', issue_max_age_s=86400, monitor_github_issues=True, monitor_github_prs=True, monitor_github_ci=True, monitor_github_pr_builds=True, monitor_prometheus=False, monitor_loki=False, monitor_k8s=False)
+2026-08-26 17:41:59,086 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-08-26 17:41:59,087 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-08-26 17:42:08,714 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-08-26 17:42:08,715 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-08-26 17:42:08,716 ERROR devops_agent.unhandled [MainThread] Unhandled process exception
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/uvicorn/__main__.py", line 4, in <module>
+    uvicorn.main()
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/click/core.py", line 1442, in __call__
+    return self.main(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/click/core.py", line 1363, in main
+    rv = self.invoke(ctx)
+         ^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/click/core.py", line 1226, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/click/core.py", line 794, in invoke
+    return callback(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/uvicorn/main.py", line 440, in main
+    run(
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/uvicorn/main.py", line 609, in run
+    config.load_app()
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/uvicorn/config.py", line 427, in load_app
+    return import_from_string(self.app)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/main.py", line 21, in <module>
+    from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/watchdog.py", line 37, in <module>
+    class WatchdogConfig:
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/watchdog.py", line 39, in WatchdogConfig
+    interval_seconds:         int  = int(WATCHDOG_DEFAULT_INTERVAL_SECONDS)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+2026-08-26 17:42:33,758 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-08-26 17:42:33,759 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-08-26 17:42:33,772 INFO devops_agent.graph [MainThread] Creating LangGraph model and custom nodes
+2026-08-26 17:42:33,774 INFO devops_agent.graph [MainThread] LangGraph compilation completed
+2026-08-26 17:42:33,779 INFO devops_agent.main [MainThread] Active monitors: ['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-08-26 17:42:33,779 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=gh path=/usr/bin/gh reason=required for GitHub issue/PR/CI integration
+2026-08-26 17:42:33,779 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=kubectl path=/usr/local/bin/kubectl reason=required for Kubernetes monitor and validation flows
+2026-08-26 17:42:33,779 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=helm path=/usr/local/bin/helm reason=required for Helm validation and deployability checks
+2026-08-26 17:42:33,779 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=smbclient path=/usr/bin/smbclient reason=required for smb:// chart retrieval
+2026-08-26 17:42:33,790 INFO devops_agent.main [MainThread] Autostart watchdog: namespace=iotag-dev interval=30s active_monitors=['github_issues', 'github_prs', 'github_ci_failure', 'github_pr_builds']
+2026-08-26 17:42:33,790 INFO devops_agent.watchdog [MainThread] [WATCHDOG] start: WatchdogConfig(namespace='iotag-dev', interval_seconds=30, monitor_github=True, github_org='', issue_max_age_s=3600, monitor_github_issues=True, monitor_github_prs=True, monitor_github_ci=True, monitor_github_pr_builds=True, monitor_prometheus=False, monitor_loki=False, monitor_k8s=False)
+2026-08-26 17:42:41,327 INFO devops_agent.monitors.github_issues [Thread-1 (_loop)] [GitHubIssueMonitor] Detected issue: AGH-iot-agent/iot-agent-stream-worker#9 (infra=True) with labels {'iot-devops-agent'}
+2026-08-26 17:42:41,761 INFO devops_agent.monitors.github_issues [Thread-1 (_loop)] [GitHubIssueMonitor] Detected issue: AGH-iot-agent/iot-agent-stream-worker#8 (infra=True) with labels {'iot-devops-agent'}
+2026-08-26 17:42:47,180 INFO devops_agent.monitors.github_issues [Thread-1 (_loop)] [GitHubIssueMonitor] Detected issue: AGH-iot-agent/iot-agent-login-screen#167 (infra=True) with labels {'iot-devops-agent'}
+2026-08-26 17:42:48,135 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch start event_kind=github_issue title=AGH-iot-agent/iot-agent-stream-worker#9: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-dc835279-9bdc-4a5d-8ba5-0324ddd49f2e dry_run=False autoapply=False namespace=iotag-dev
+2026-08-26 17:42:48,135 INFO devops_agent.watchdog [watchdog-dispatch_1] [WATCHDOG] Dispatch start event_kind=github_issue title=AGH-iot-agent/iot-agent-stream-worker#8: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-0bf563bd-ab05-4f6c-aa42-4d13b5e0b58c dry_run=False autoapply=False namespace=iotag-dev
+2026-08-26 17:42:48,136 INFO devops_agent.watchdog [watchdog-dispatch_2] [WATCHDOG] Dispatch start event_kind=github_issue title=AGH-iot-agent/iot-agent-login-screen#167: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-44ea7f00-5fd3-4ad7-b03d-b3bfac86bad8 dry_run=False autoapply=False namespace=iotag-dev
+2026-08-26 17:42:50,350 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_1] [GRAFANA-API] GET /loki/api/v1/query_range params={'query': '{namespace="iotag-dev", app="stream-worker-api"}', 'start': '1787764370350425600', 'end': '1787766170350425600', 'limit': '150', 'direction': 'backward'}
+2026-08-26 17:42:50,351 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_0] [GRAFANA-API] GET /loki/api/v1/query_range params={'query': '{namespace="iotag-dev", app="stream-worker-api"}', 'start': '1787764370351009280', 'end': '1787766170351009280', 'limit': '150', 'direction': 'backward'}
+2026-08-26 17:42:50,370 ERROR devops_agent.mcp_adapter [watchdog-dispatch_1] MCPAdapter.run failed: loki/query_range params_keys=['last_minutes', 'limit', 'namespace', 'service']
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpcore/_sync/connection_pool.py", line 207, in handle_request
+    raise UnsupportedProtocol(
+httpcore.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/mcp_adapter.py", line 138, in run
+    result = fn(**params)
+             ^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 43, in query_range
+    return self._request(logql, last_minutes, limit)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 145, in _request
+    data = self._request_once(url, params, headers, timeout, limits)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 113, in _request_once
+    response = client.get(url, params=params, headers=headers)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1053, in get
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+2026-08-26 17:42:50,371 ERROR devops_agent.mcp_adapter [watchdog-dispatch_0] MCPAdapter.run failed: loki/query_range params_keys=['last_minutes', 'limit', 'namespace', 'service']
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpcore/_sync/connection_pool.py", line 207, in handle_request
+    raise UnsupportedProtocol(
+httpcore.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/mcp_adapter.py", line 138, in run
+    result = fn(**params)
+             ^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 43, in query_range
+    return self._request(logql, last_minutes, limit)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 145, in _request
+    data = self._request_once(url, params, headers, timeout, limits)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 113, in _request_once
+    response = client.get(url, params=params, headers=headers)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1053, in get
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+2026-08-26 17:42:50,465 INFO devops_agent.adapters.loki_adapter [watchdog-dispatch_2] [GRAFANA-API] GET /loki/api/v1/query_range params={'query': '{namespace="iotag-dev", app="login-screen-api"}', 'start': '1787764370465225728', 'end': '1787766170465225728', 'limit': '150', 'direction': 'backward'}
+2026-08-26 17:42:50,479 ERROR devops_agent.mcp_adapter [watchdog-dispatch_2] MCPAdapter.run failed: loki/query_range params_keys=['last_minutes', 'limit', 'namespace', 'service']
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpcore/_sync/connection_pool.py", line 207, in handle_request
+    raise UnsupportedProtocol(
+httpcore.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/mcp_adapter.py", line 138, in run
+    result = fn(**params)
+             ^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 43, in query_range
+    return self._request(logql, last_minutes, limit)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 145, in _request
+    data = self._request_once(url, params, headers, timeout, limits)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/src/devops_agent/adapters/loki_adapter.py", line 113, in _request_once
+    response = client.get(url, params=params, headers=headers)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1053, in get
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+2026-08-26 17:42:54,482 INFO httpx [watchdog-dispatch_1] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-26 17:42:54,729 INFO httpx [watchdog-dispatch_2] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-26 17:42:54,780 INFO httpx [watchdog-dispatch_0] HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-08-26 17:42:55,580 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch end event_kind=github_issue title=AGH-iot-agent/iot-agent-stream-worker#9: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-dc835279-9bdc-4a5d-8ba5-0324ddd49f2e mttr_s=7.445
+2026-08-26 17:42:55,613 INFO devops_agent.watchdog [watchdog-dispatch_1] [WATCHDOG] Dispatch end event_kind=github_issue title=AGH-iot-agent/iot-agent-stream-worker#8: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-0bf563bd-ab05-4f6c-aa42-4d13b5e0b58c mttr_s=7.478
+2026-08-26 17:42:55,677 INFO devops_agent.watchdog [watchdog-dispatch_2] [WATCHDOG] Dispatch end event_kind=github_issue title=AGH-iot-agent/iot-agent-login-screen#167: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-44ea7f00-5fd3-4ad7-b03d-b3bfac86bad8 mttr_s=7.541
+2026-08-26 17:42:59,646 INFO devops_agent.watchdog [watchdog-dispatch_0] [WATCHDOG] Dispatch start event_kind=github_pr title=AGH-iot-agent/iot-agent-stream-worker#9: [true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values trace_id=watchdog-e54782de-9799-455f-b80a-02ec4a8119ae dry_run=False autoapply=False namespace=iotag-dev
+2026-08-26 17:43:11,389 WARNING guardrails-ai [MainThread] Failed to read hub registry at /home/dominiq/iot-agent-langgraph/.guardrails/hub_registry.json
+2026-08-26 17:43:11,389 WARNING devops_agent.guardrails.guardrails [MainThread] [guardrails] Hub validators not installed (cannot import name 'DetectPII' from 'guardrails.hub' (/home/dominiq/iot-agent-langgraph/venv/lib/python3.12/site-packages/guardrails/hub/__init__.py)). Falling back to regex SecurityLayer. Run: guardrails hub install hub://guardrails/detect_pii && guardrails hub install hub://guardrails/secrets_present
+2026-08-26 17:43:11,399 INFO devops_agent.graph [MainThread] Creating LangGraph model and custom nodes
+2026-08-26 17:43:11,402 INFO devops_agent.graph [MainThread] LangGraph compilation completed
+2026-08-26 17:43:11,406 INFO devops_agent.main [MainThread] Active monitors: []
+2026-08-26 17:43:11,406 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=gh path=/usr/bin/gh reason=required for GitHub issue/PR/CI integration
+2026-08-26 17:43:11,406 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=kubectl path=/usr/local/bin/kubectl reason=required for Kubernetes monitor and validation flows
+2026-08-26 17:43:11,407 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=helm path=/usr/local/bin/helm reason=required for Helm validation and deployability checks
+2026-08-26 17:43:11,407 INFO devops_agent.preflight [MainThread] [PREFLIGHT] dependency_ok name=smbclient path=/usr/bin/smbclient reason=required for smb:// chart retrieval
+2026-08-26 17:43:24,399 INFO devops_agent.main [MainThread] [HTTP] start method=GET path=/health trace_id=http-0f54a97c-14bd-496d-a314-8641aff3afc0
+2026-08-26 17:43:24,400 INFO devops_agent.main [MainThread] [HTTP] end method=GET path=/health status=200 latency_ms=0.98 trace_id=http-0f54a97c-14bd-496d-a314-8641aff3afc0

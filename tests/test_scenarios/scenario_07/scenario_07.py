@@ -15,12 +15,20 @@ from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog
 
-TARGET_REPO = os.environ.get("TEST_SCENARIO07_TARGET_REPO", "AGH-iot-agent/iot-agent-login-screen")
+EXPECTED_SCENARIO07_REPO = "AGH-iot-agent/iot-agent-stream-worker"
+TARGET_REPO = os.environ.get("TEST_SCENARIO07_TARGET_REPO", EXPECTED_SCENARIO07_REPO)
 BASE_BRANCH = os.environ.get("TEST_SCENARIO07_BASE_BRANCH", "main")
-TARGET_NAMESPACE = os.environ.get("TEST_SCENARIO07_TARGET_NAMESPACE", "iotag-dev")
+TARGET_NAMESPACE = os.environ.get("TEST_SCENARIO07_TARGET_NAMESPACE", "iotag-sbx")
 KUBECONFIG = os.environ.get("TEST_SCENARIO07_KUBECONFIG")
 OOM_WAIT_TIMEOUT_S = int(os.environ.get("TEST_SCENARIO07_OOM_WAIT_TIMEOUT_S", "600"))
 OOM_POLL_INTERVAL_S = int(os.environ.get("TEST_SCENARIO07_OOM_POLL_INTERVAL_S", "15"))
+TARGET_DEPLOYMENT = os.environ.get("TEST_SCENARIO07_TARGET_DEPLOYMENT", TARGET_REPO.rsplit("/", 1)[-1])
+ALLOW_NON_OOM_TARGET = os.environ.get("TEST_SCENARIO07_ALLOW_NON_OOM_TARGET", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 SCENARIO_DIR = Path(__file__).parent
 BROKEN_DEV_VALUES_PATH = SCENARIO_DIR / "values-dev.yaml"
 BROKEN_SBX_VALUES_PATH = SCENARIO_DIR / "values-sbx.yaml"
@@ -72,6 +80,12 @@ class _GraphWithFixPR:
 def _require_env() -> None:
     if not TARGET_REPO:
         pytest.fail("Missing required environment variable: TEST_SCENARIO07_TARGET_REPO")
+    if TARGET_REPO != EXPECTED_SCENARIO07_REPO and not ALLOW_NON_OOM_TARGET:
+        pytest.fail(
+            "Scenario 07 expects OOM target repo "
+            f"'{EXPECTED_SCENARIO07_REPO}', but got '{TARGET_REPO}'. "
+            "Set TEST_SCENARIO07_ALLOW_NON_OOM_TARGET=1 only if you intentionally want another service."
+        )
 
 
 def _build_pr_event(repo: str, pr_number: int, branch: str, body: str) -> AgentEvent:
@@ -87,6 +101,85 @@ def _build_pr_event(repo: str, pr_number: int, branch: str, body: str) -> AgentE
     )
 
 
+def _is_target_pod(pod_name: str) -> bool:
+    return pod_name == TARGET_DEPLOYMENT or pod_name.startswith(f"{TARGET_DEPLOYMENT}-")
+
+
+def _pod_has_oomkilled_status(k8s_adapter: K8sAdapter, namespace: str, pod_name: str) -> dict[str, Any] | None:
+    pod_resp = k8s_adapter.get_pod(pod_name, namespace)
+    if pod_resp.get("status") != "ok":
+        return None
+
+    pod_json = pod_resp.get("pod", {})
+    status = pod_json.get("status", {})
+    status_groups = [
+        status.get("containerStatuses", []),
+        status.get("initContainerStatuses", []),
+    ]
+
+    for group in status_groups:
+        for container_status in group:
+            for state_key in ("state", "lastState"):
+                state = container_status.get(state_key, {})
+                for phase_key in ("terminated", "waiting"):
+                    phase = state.get(phase_key, {})
+                    reason = str(phase.get("reason") or "").lower()
+                    message = str(phase.get("message") or "").lower()
+                    if reason == "oomkilled" or "oomkilled" in message:
+                        return {
+                            "pod": {
+                                "name": pod_name,
+                                "phase": status.get("phase", ""),
+                                "restarts": sum(
+                                    int(item.get("restartCount", 0))
+                                    for item in status.get("containerStatuses", [])
+                                ),
+                            },
+                            "pod_status": pod_json,
+                            "container": container_status.get("name"),
+                            "reason": phase.get("reason"),
+                            "message": phase.get("message"),
+                        }
+    return None
+
+
+def _pod_non_oom_diagnostics(k8s_adapter: K8sAdapter, namespace: str, pod_name: str) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+
+    pod_resp = k8s_adapter.get_pod(pod_name, namespace)
+    if pod_resp.get("status") == "ok":
+        pod_json = pod_resp.get("pod", {})
+        status = pod_json.get("status", {})
+        diagnostics["phase"] = status.get("phase", "")
+        diagnostics["container_reasons"] = []
+        for group_key in ("containerStatuses", "initContainerStatuses"):
+            for cs in status.get(group_key, []) or []:
+                for state_key in ("state", "lastState"):
+                    state = cs.get(state_key, {}) or {}
+                    for phase_key in ("waiting", "terminated"):
+                        phase = state.get(phase_key, {}) or {}
+                        reason = str(phase.get("reason") or "")
+                        message = str(phase.get("message") or "")
+                        if reason or message:
+                            diagnostics["container_reasons"].append(
+                                {
+                                    "container": cs.get("name"),
+                                    "state": state_key,
+                                    "phase": phase_key,
+                                    "reason": reason,
+                                    "message": message,
+                                }
+                            )
+
+    pod_events = k8s_adapter.get_pod_events(pod_name, namespace)
+    if pod_events.get("status") == "ok":
+        events = pod_events.get("events", []) or []
+        diagnostics["recent_events"] = events[-5:]
+        diagnostics["event_reasons"] = [str(e.get("reason") or "") for e in events[-10:]]
+
+    return diagnostics
+
+
 def _wait_for_real_oomkilled(k8s_adapter: K8sAdapter, namespace: str, timeout_s: int, poll_interval_s: int) -> dict[str, Any]:
     """Wait until the live cluster reports a real OOMKilled pod in the target namespace.
 
@@ -94,35 +187,59 @@ def _wait_for_real_oomkilled(k8s_adapter: K8sAdapter, namespace: str, timeout_s:
     and only then dispatch the watchdog event.
     """
     deadline = time.time() + timeout_s
-    last_seen: dict[str, Any] = {}
+    last_seen: dict[str, Any] = {"deployment": TARGET_DEPLOYMENT, "namespace": namespace, "seen_target_pod": False}
 
     while time.time() < deadline:
         pods_resp = k8s_adapter.get_pods(namespace)
         if pods_resp.get("status") == "ok":
             for pod in pods_resp.get("pods", []):
+                pod_name = str(pod.get("name") or "")
+                if not _is_target_pod(pod_name):
+                    continue
+                last_seen["seen_target_pod"] = True
                 restarts = int(pod.get("restarts", 0))
                 phase = str(pod.get("phase", "")).lower()
+                last_seen = {
+                    "deployment": TARGET_DEPLOYMENT,
+                    "namespace": namespace,
+                    "seen_target_pod": True,
+                    "pod": pod_name,
+                    "phase": phase,
+                    "restarts": restarts,
+                    "ready": bool(pod.get("ready", False)),
+                }
+                oom_status = _pod_has_oomkilled_status(k8s_adapter, namespace, pod_name)
+                if oom_status:
+                    pod_events = k8s_adapter.get_pod_events(pod_name, namespace)
+                    if pod_events.get("status") == "ok":
+                        for event in pod_events.get("events", []):
+                            reason = str(event.get("reason") or "").lower()
+                            if reason in {"oomkilling", "oomkilled"}:
+                                oom_status["event"] = event
+                                return oom_status
+                    return oom_status
                 if restarts > 0 or phase not in {"running", "succeeded"}:
-                    events_resp = k8s_adapter.get_events(namespace)
+                    events_resp = k8s_adapter.get_pod_events(pod_name, namespace)
                     if events_resp.get("status") == "ok":
                         for event in events_resp.get("events", []):
                             reason = str(event.get("reason") or "")
                             if reason.lower() in {"oomkilling", "oomkilled"}:
                                 return {"pod": pod, "event": event}
-
-        events_resp = k8s_adapter.get_events(namespace)
-        if events_resp.get("status") == "ok":
-            for event in events_resp.get("events", []):
-                reason = str(event.get("reason") or "")
-                if reason.lower() in {"oomkilling", "oomkilled"}:
-                    return {"event": event}
-                last_seen = {"event": event}
+                    last_seen["non_oom_diagnostics"] = _pod_non_oom_diagnostics(k8s_adapter, namespace, pod_name)
 
         time.sleep(poll_interval_s)
 
+    if not bool(last_seen.get("seen_target_pod")):
+        pytest.fail(
+            f"Timed out after {timeout_s}s waiting for deployment '{TARGET_DEPLOYMENT}' pods in namespace '{namespace}'. "
+            f"Last seen state: {last_seen}. "
+            "Verify TEST_SCENARIO07_TARGET_NAMESPACE and TEST_SCENARIO07_TARGET_DEPLOYMENT."
+        )
+
     pytest.fail(
-        f"Timed out after {timeout_s}s waiting for a real OOMKilled event in namespace '{namespace}'. "
-        f"Last seen state: {last_seen}"
+        f"Timed out after {timeout_s}s waiting for a real OOMKilled event for deployment '{TARGET_DEPLOYMENT}' in namespace '{namespace}'. "
+        f"Last seen state: {last_seen}. "
+        "If recent events show Unhealthy/Liveness/Readiness/Killing without OOMKilled, this is not an OOM scenario."
     )
 
 

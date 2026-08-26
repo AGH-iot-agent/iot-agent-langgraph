@@ -14,18 +14,33 @@ from devops_agent.metrics import agent_metrics
 
 logger = logging.getLogger(__name__)
 
-WATCHDOG_DEFAULT_NAMESPACE                = os.environ.get("WATCHDOG_DEFAULT_NAMESPACE")
-WATCHDOG_DEFAULT_INTERVAL_SECONDS         = os.environ.get("WATCHDOG_DEFAULT_INTERVAL_SECONDS")
-WATCHDOG_DEFAULT_MONITOR_GITHUB           = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB")
-WATCHDOG_DEFAULT_GITHUB_ORG               = os.environ.get("WATCHDOG_DEFAULT_GITHUB_ORG")
-WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S          = os.environ.get("WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S")
-WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES    = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES")
-WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS       = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS")
-WATCHDOG_DEFAULT_MONITOR_GITHUB_CI        = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_CI")
-WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS = os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS")
-WATCHDOG_DEFAULT_MONITOR_PROMETHEUS       = os.environ.get("WATCHDOG_DEFAULT_MONITOR_PROMETHEUS")
-WATCHDOG_DEFAULT_MONITOR_LOKI             = os.environ.get("WATCHDOG_DEFAULT_MONITOR_LOKI")
-WATCHDOG_DEFAULT_MONITOR_K8S              = os.environ.get("WATCHDOG_DEFAULT_MONITOR_K8S")
+
+def _is_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid int env %s=%r; using default=%s", name, raw, default)
+        return default
+
+WATCHDOG_DEFAULT_NAMESPACE                = os.environ.get("WATCHDOG_DEFAULT_NAMESPACE", "iot-agent")
+WATCHDOG_DEFAULT_INTERVAL_SECONDS         = _env_int("WATCHDOG_DEFAULT_INTERVAL_SECONDS", 30)
+WATCHDOG_DEFAULT_MONITOR_GITHUB           = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB"))
+WATCHDOG_DEFAULT_GITHUB_ORG               = os.environ.get("WATCHDOG_DEFAULT_GITHUB_ORG", "")
+WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S          = _env_int("WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S", 3600)
+WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES    = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES"))
+WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS       = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS"))
+WATCHDOG_DEFAULT_MONITOR_GITHUB_CI        = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_CI"))
+WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS"))
+WATCHDOG_DEFAULT_MONITOR_PROMETHEUS       = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_PROMETHEUS"))
+WATCHDOG_DEFAULT_MONITOR_LOKI             = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_LOKI"))
+WATCHDOG_DEFAULT_MONITOR_K8S              = _is_truthy(os.environ.get("WATCHDOG_DEFAULT_MONITOR_K8S"))
 
 @dataclass
 class WatchdogResponse:
@@ -36,17 +51,17 @@ class WatchdogResponse:
 @dataclass
 class WatchdogConfig:
     namespace:                str  = WATCHDOG_DEFAULT_NAMESPACE 
-    interval_seconds:         int  = int(WATCHDOG_DEFAULT_INTERVAL_SECONDS)
-    monitor_github:           bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB)
+    interval_seconds:         int  = WATCHDOG_DEFAULT_INTERVAL_SECONDS
+    monitor_github:           bool = WATCHDOG_DEFAULT_MONITOR_GITHUB
     github_org:               str  = WATCHDOG_DEFAULT_GITHUB_ORG
-    issue_max_age_s:          int  = int(WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S)
-    monitor_github_issues:    bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES)
-    monitor_github_prs:       bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS)
-    monitor_github_ci:        bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_CI)
-    monitor_github_pr_builds: bool = bool(WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS)
-    monitor_prometheus:       bool = bool(WATCHDOG_DEFAULT_MONITOR_PROMETHEUS)
-    monitor_loki:             bool = bool(WATCHDOG_DEFAULT_MONITOR_LOKI)
-    monitor_k8s:              bool = bool(WATCHDOG_DEFAULT_MONITOR_K8S)
+    issue_max_age_s:          int  = WATCHDOG_DEFAULT_ISSUE_MAX_AGE_S
+    monitor_github_issues:    bool = WATCHDOG_DEFAULT_MONITOR_GITHUB_ISSUES
+    monitor_github_prs:       bool = WATCHDOG_DEFAULT_MONITOR_GITHUB_PRS
+    monitor_github_ci:        bool = WATCHDOG_DEFAULT_MONITOR_GITHUB_CI
+    monitor_github_pr_builds: bool = WATCHDOG_DEFAULT_MONITOR_GITHUB_PR_BUILDS
+    monitor_prometheus:       bool = WATCHDOG_DEFAULT_MONITOR_PROMETHEUS
+    monitor_loki:             bool = WATCHDOG_DEFAULT_MONITOR_LOKI
+    monitor_k8s:              bool = WATCHDOG_DEFAULT_MONITOR_K8S
 
 @dataclass
 class Alert:
@@ -69,9 +84,6 @@ class StatusReport(TypedDict):
 
 _DISPATCH_SEMAPHORE = threading.Semaphore(3)
 
-
-def _is_truthy(value: str | None) -> bool:
-    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 class AgentWatchdog:
     def __init__(self, adapter, graph, monitors) -> None:

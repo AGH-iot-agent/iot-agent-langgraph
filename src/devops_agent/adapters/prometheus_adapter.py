@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-PROMETHEUS_URL_DEFAULT = os.getenv("PROMETHEUS_URL")
+PROMETHEUS_URL_DEFAULT = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 PROMETHEUS_USER        = os.getenv("PROMETHEUS_USER")
 PROMETHEUS_PASSWORD    = os.getenv("PROMETHEUS_PASSWORD")
 PROMETHEUS_TIMEOUT     = int(os.getenv("PROMETHEUS_TIMEOUT", "20"))
@@ -19,7 +19,7 @@ class PrometheusAdapter:
     Set PROMETHEUS_USER / PROMETHEUS_PASSWORD for basic-auth (Grafana Cloud / Mimir).
     """
 
-    base_url: str        = field(default_factory=lambda: PROMETHEUS_URL_DEFAULT.rstrip("/"))
+    base_url: str        = field(default_factory=lambda: (PROMETHEUS_URL_DEFAULT or "").rstrip("/"))
     user: str | None     = field(default_factory=lambda: PROMETHEUS_USER)
     password: str | None = field(default_factory=lambda: PROMETHEUS_PASSWORD)
     timeout: int         = field(default_factory=lambda: PROMETHEUS_TIMEOUT)

@@ -1,7 +1,7 @@
 # Default values for a "deployment"
 
 # REQUIRED for you to set a value here, name of your service
-name: "iot-agent-login-screen"
+name: "iot-agent-stream-worker"
 
 # Number of pods in deployment, default of not highly available (override on HA environments)
 replicaCount: 1
@@ -43,10 +43,10 @@ istio:
     protocol: HTTP
   virtualService:
     enabled: true
-    name: "iot-agent-login-screen"
+    name: "iot-agent-stream-worker"
     annotations: {}
     hosts:
-      - iot-agent-login-screen-dev.iotag-dev.com
+      - iot-agent-stream-worker-dev.iotag-dev.com
     gateways:
       - istio-system/istio-ingressgateway
     http:
@@ -55,7 +55,7 @@ istio:
               prefix: /
         route:
           - destination:
-              host: iot-agent-login-screen.iotag-dev.svc.cluster.local
+              host: iot-agent-stream-worker.iotag-dev.svc.cluster.local
               port:
                 number: 80
     # http: []
@@ -70,7 +70,7 @@ ingress:
   pathType: ImplementationSpecific
   annotations: {}
   hosts:
-    - host: iot-agent-login-screen-dev.iotag-dev
+    - host: iot-agent-stream-worker-dev.iotag-dev
       paths:
         - /
   tls: []

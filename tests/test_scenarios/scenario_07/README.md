@@ -1,12 +1,12 @@
 # Scenariusz 07 — PR: OOMKilled po zbyt niskich limitach pamięci w Helm values
 
 **Typ:** GitHub Pull Request  
-**Repo:** `AGH-iot-agent/iot-agent-login-screen`  
+**Repo:** `AGH-iot-agent/iot-agent-stream-worker`  
 **Cel:** Sprawdzenie, czy agent wykryje OOMKilled spowodowany zbyt niskim limitem pamięci (`32Mi`) w Helm values i zaproponuje podniesienie limitu.
 
 ## Opis
 
-PR wprowadza `values-dev.yaml` z ustawionym limitem pamięci `32Mi` dla kontenera. Z limitem `32Mi` pod powinien zostać zabity przez OOMKiller (exit code 137). Agent powinien przeanalizować logi deploymentu i/lub opis poda, wykryć przyczynę OOMKilled i zaproponować podniesienie limitu pamięci do bezpiecznej wartości.
+PR wprowadza `values-dev.yaml` z ustawionym limitem pamięci `32Mi` dla kontenera. Serwis Spring Boot potrzebuje minimum kilkuset MB pamięci do działania — z limitem `32Mi` pod jest natychmiast zabijany przez OOMKiller (exit code 137). Agent powinien przeanalizować logi deploymentu i/lub opis poda, wykryć przyczynę OOMKilled i zaproponować podniesienie limitu pamięci do wartości odpowiedniej dla serwisu Java.
 
 ## Kroki
 

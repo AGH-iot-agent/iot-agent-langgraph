@@ -80,14 +80,14 @@
         "alert_name": "ContainerOOMKilled",
         "severity": "critical",
         "namespace": "iotag-dev",
-        "service": "iot-agent-login-screen",
+        "service": "iot-agent-stream-worker",
         "annotations": {
           "summary": "Container OOMKilled",
-          "description": "Container iot-agent-login-screen was OOMKilled. Memory limit: 256Mi, usage before kill: 255Mi"
+          "description": "Container iot-agent-stream-worker was OOMKilled. Memory limit: 256Mi, usage before kill: 255Mi"
         },
         "labels": {
-          "container": "iot-agent-login-screen",
-          "pod": "iot-agent-login-screen-5f7b9c-abcd1"
+          "container": "iot-agent-stream-worker",
+          "pod": "iot-agent-stream-worker-5f7b9c-abcd1"
         },
         "value": 268435456,
         "threshold": 268435456
