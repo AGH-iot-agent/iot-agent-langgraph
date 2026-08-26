@@ -153,6 +153,13 @@ class MCPAdapter:
                 httpcore.ReadError,
                 ConnectionRefusedError,
             )
+            _expected_config_errors = (
+                httpx.UnsupportedProtocol,
+                httpx.InvalidURL,
+                httpcore.UnsupportedProtocol,
+                RuntimeError,
+                ValueError,
+            )
             if isinstance(exc, _timeouts):
                 logger.warning("MCPAdapter.run: %s/%s — timed out (%s)", service, tool, exc)
                 _record("degraded", timeout=True)
@@ -160,12 +167,17 @@ class MCPAdapter:
             if isinstance(exc, _unreachable):
                 logger.warning("MCPAdapter.run: %s/%s — service unreachable (%s)", service, tool, exc)
                 _record("error")
-            else:
-                logger.exception(
-                    "MCPAdapter.run failed: %s/%s params_keys=%s",
-                    service,
-                    tool,
-                    sorted(list(params.keys())),
-                )
+                return {"status": "error", "message": str(exc)}
+            if isinstance(exc, _expected_config_errors):
+                logger.warning("MCPAdapter.run: %s/%s — configuration/dependency error (%s)", service, tool, exc)
                 _record("error")
+                return {"status": "error", "message": str(exc)}
+
+            logger.exception(
+                "MCPAdapter.run failed: %s/%s params_keys=%s",
+                service,
+                tool,
+                sorted(list(params.keys())),
+            )
+            _record("error")
             return {"status": "error", "message": str(exc)}
