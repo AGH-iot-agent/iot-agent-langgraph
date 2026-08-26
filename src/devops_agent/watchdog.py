@@ -231,13 +231,14 @@ class AgentWatchdog:
             state = {
                 "trace_id":       trace_id,
                 "request":        event.to_prompt(),
-                "event_kind":     event.kind,              
-                "issue_title":    event.title,           
-                "issue_body":     event.body,             
+                "event_kind":     event.kind,
+                "issue_title":    event.title,
+                "issue_body":     event.body,
                 "dry_run":        effective_dry_run,
                 "context":        event_context,
                 "max_revisions":  1,
                 "revision_count": 0,
+                "started_at":     time.time(),
             }
             result = self._graph.invoke(state)
             raw_comment = result.get("final_summary") or result.get("execution_summary") or event.to_prompt()
@@ -291,29 +292,6 @@ class AgentWatchdog:
                             "[WATCHDOG] No PR created for %s (%s): %s",
                             event.kind, event.title, final[:300],
                         )
-
-            plan = result.get("plan") or []
-            validation = result.get("validation_result") or {}
-            token_usage = result.get("token_usage") or {}
-            input_tokens = int(token_usage.get("input_tokens", 0))
-            output_tokens = int(token_usage.get("output_tokens", 0))
-            agent_metrics.record(
-                {
-                    "trace_id": trace_id,
-                    "event_kind": str(result.get("event_kind") or event.kind),
-                    "repo": str(event_context.get("repo_full_name", "")),
-                    "title": event.title,
-                    "mttr_s": time.time() - started_at,
-                    "plan_step_count": int(token_usage.get("plan_step_count", len(plan))),
-                    "tool_call_rounds": int(token_usage.get("tool_call_rounds", 0)),
-                    "revision_count": int(result.get("revision_count", 0)),
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "total_tokens": input_tokens + output_tokens,
-                    "validation_passed": bool(validation.get("passed", False)),
-                    "pr_created": bool(result.get("pr_url")),
-                }
-            )
 
             self._append_alert(event.kind, event.title, event.context)
             logger.info(

@@ -25,6 +25,7 @@ class AgentState(TypedDict, total=False):
     request: str
     dry_run: bool
     context: dict[str, Any]
+    started_at: float | None
     plan: list[PlanStep]
     critique_passed: bool
     critique_notes: list[str]

@@ -1,9 +1,13 @@
 # devops_agent/graph.py
 from __future__ import annotations
 
+import time
+from typing import Any
+
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from devops_agent.metrics import agent_metrics
 from devops_agent.nodes.critic import critic_node, route_after_critic
 from devops_agent.nodes.executor import executor_node
 from devops_agent.nodes.finalizer import finalizer_node
@@ -24,6 +28,43 @@ import logging
 logger = logging.getLogger("devops_agent.graph")
 
 
+def record_graph_run_metrics(state: dict[str, Any], *, started_at: float | None = None, trace_id: str | None = None, event_kind: str | None = None, repo: str | None = None, title: str | None = None) -> None:
+    """Record one telemetry event for a completed LangGraph execution."""
+    if not isinstance(state, dict):
+        return
+
+    started = state.get("started_at") if started_at is None else started_at
+    if started is None:
+        started = time.time()
+
+    trace = str(trace_id or state.get("trace_id") or "no-trace")
+    kind = str(event_kind or state.get("event_kind") or "manual_run")
+    repo_name = str(repo or ((state.get("context") or {}).get("repo_full_name") or ""))
+    title_text = str(title or state.get("issue_title") or state.get("request") or "unknown")
+
+    token_usage = state.get("token_usage") or {}
+    input_tokens = int(token_usage.get("input_tokens", 0) or 0)
+    output_tokens = int(token_usage.get("output_tokens", 0) or 0)
+    plan = state.get("plan") or []
+    validation = state.get("validation_result") or {}
+
+    agent_metrics.record({
+        "trace_id": trace,
+        "event_kind": kind,
+        "repo": repo_name,
+        "title": title_text,
+        "mttr_s": max(0.0, time.time() - float(started)),
+        "plan_step_count": int(token_usage.get("plan_step_count", len(plan))),
+        "tool_call_rounds": int(token_usage.get("tool_call_rounds", 0) or 0),
+        "revision_count": int(state.get("revision_count", 0) or 0),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "validation_passed": bool(validation.get("passed", False)),
+        "pr_created": bool(state.get("pr_url")),
+    })
+
+
 def build_graph():
     logger.info("Creating LangGraph model and custom nodes")
     graph = StateGraph(AgentState)
@@ -41,13 +82,20 @@ def build_graph():
                 raise
         return wrapper
 
+    def _finalizer_with_metrics(state):
+        updated = finalizer_node(state)
+        if isinstance(updated, dict):
+            updated.setdefault("started_at", time.time())
+            record_graph_run_metrics(updated)
+        return updated
+
     # Security gates (entry + exit)
     graph.add_node("security_input",    log_node("security_input",    security_input_node))
     graph.add_node("security_output",   log_node("security_output",   security_output_node))
     graph.add_node("planner",           log_node("planner", planner_node))
     graph.add_node("critic",            log_node("critic", critic_node))
     graph.add_node("executor",          log_node("executor", executor_node))
-    graph.add_node("finalizer",         log_node("finalizer", finalizer_node))
+    graph.add_node("finalizer",         log_node("finalizer", _finalizer_with_metrics))
     graph.add_node("ci_fixer",          log_node("ci_fixer", ci_fixer_node))
     graph.add_node("sandbox_validator", log_node("sandbox_validator", sandbox_validator_node))
     graph.add_node("pr_creator",        log_node("pr_creator", pr_creator_node))

@@ -9,14 +9,22 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-GRAFANA_URL_DEFAULT = os.getenv("GRAFANA_URL")
+
+def _normalize_base_url(value: str | None, default: str = "") -> str:
+    if value is None:
+        value = default
+    value = str(value).strip()
+    return value.rstrip("/") if value else ""
+
+
+GRAFANA_URL_DEFAULT = _normalize_base_url(os.getenv("GRAFANA_URL"))
 GRAFANA_API_KEY = os.getenv("GRAFANA_API_KEY")
 GRAFANA_TIMEOUT = int(os.getenv("GRAFANA_TIMEOUT", "20"))
 
 
 @dataclass
 class GrafanaAdapter:
-    base_url: str = field(default_factory=lambda: GRAFANA_URL_DEFAULT.rstrip("/") if GRAFANA_URL_DEFAULT else "")
+    base_url: str = field(default_factory=lambda: _normalize_base_url(GRAFANA_URL_DEFAULT))
     api_key: str | None = field(default_factory=lambda: GRAFANA_API_KEY)
     timeout: int = field(default_factory=lambda: GRAFANA_TIMEOUT)
 

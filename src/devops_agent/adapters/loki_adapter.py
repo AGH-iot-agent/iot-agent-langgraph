@@ -11,16 +11,24 @@ import httpcore
 
 logger = logging.getLogger(__name__)
 
-LOKI_URL_DEFAULT     = os.getenv("LOKI_URL")
+
+def _normalize_base_url(value: str | None, default: str = "") -> str:
+    if value is None:
+        value = default
+    value = str(value).strip()
+    return value.rstrip("/") if value else ""
+
+
+LOKI_URL_DEFAULT     = _normalize_base_url(os.getenv("LOKI_URL"))
 LOKI_USER            = os.getenv("LOKI_USER")
 LOKI_PASSWORD        = os.getenv("LOKI_PASSWORD")
 LOKI_TIMEOUT_CONNECT = int(os.getenv("LOKI_TIMEOUT_CONNECT", "5"))
-LOKI_TIMEOUT_READ    = int(os.getenv("LOKI_TIMEOUT_READ", "20"))    
+LOKI_TIMEOUT_READ    = int(os.getenv("LOKI_TIMEOUT_READ", "20"))
 LOKI_QUERY_RETRY_MAX = max(1, int(os.getenv("LOKI_QUERY_RETRY_MAX", "2")))
 
 @dataclass
 class LokiAdapter:
-    base_url: str           = field(default_factory=lambda: LOKI_URL_DEFAULT.rstrip("/") if LOKI_URL_DEFAULT else "")
+    base_url: str           = field(default_factory=lambda: _normalize_base_url(LOKI_URL_DEFAULT))
     user: str | None        = field(default_factory=lambda: LOKI_USER)
     password: str | None    = field(default_factory=lambda: LOKI_PASSWORD)
     timeout_connect: int    = field(default_factory=lambda: LOKI_TIMEOUT_CONNECT)

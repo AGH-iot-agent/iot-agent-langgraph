@@ -305,6 +305,7 @@ def run_agent(payload: RunRequest) -> dict:
         "revision_count": 0,
         "max_revisions": payload.max_revisions,
         "context": run_context,
+        "started_at": time.time(),
     }
     started_at = time.time()
     try:
@@ -319,28 +320,6 @@ def run_agent(payload: RunRequest) -> dict:
                 "error": str(exc),
             },
         )
-    token_usage = result.get("token_usage") or {}
-    input_tokens = int(token_usage.get("input_tokens", 0))
-    output_tokens = int(token_usage.get("output_tokens", 0))
-    plan = result.get("plan") or []
-    validation = result.get("validation_result") or {}
-    agent_metrics.record(
-        {
-            "trace_id": trace_id,
-            "event_kind": str(result.get("event_kind", "manual_run")),
-            "repo": str(run_context.get("repo_full_name", "")),
-            "title": payload.request,
-            "mttr_s": time.time() - started_at,
-            "plan_step_count": len(plan),
-            "tool_call_rounds": int(token_usage.get("tool_call_rounds", 0)),
-            "revision_count": int(result.get("revision_count", 0)),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens,
-            "validation_passed": bool(validation.get("passed", False)),
-            "pr_created": bool(result.get("pr_url")),
-        }
-    )
     logger.info("Run agent result: %s", result)
 
     security_violations = result.get("security_violations") or []
