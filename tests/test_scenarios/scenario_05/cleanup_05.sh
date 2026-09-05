@@ -1,6 +1,9 @@
 #!/bin/bash
+_THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${_THIS_DIR}"
+# shellcheck disable=SC1091
+source "${_THIS_DIR}/../_github_setup_token.sh"
 
-export $(grep -v '^#' .env | xargs)
 
 OWNER=AGH-iot-agent
 REPO=iot-agent-alert-api

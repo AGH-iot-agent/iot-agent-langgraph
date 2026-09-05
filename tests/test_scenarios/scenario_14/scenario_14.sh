@@ -17,14 +17,17 @@
 # Prerequisites: kubectl access to iotag-dev, GITHUB_TOKEN in .env
 
 set -euo pipefail
-
-export $(grep -v '^#' .env | xargs)
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
 NAMESPACE=${NAMESPACE:-iotag-dev}
 TARGET_POD=${TARGET_POD:-}
 WRITE_PATH=${WRITE_PATH:-/tmp/scenario_14_fill}
 FILL_SIZE_MB=${FILL_SIZE_MB:-500}
-AGENT_URL=${AGENT_URL:-http://localhost:8000}
+AGENT_URL=${AGENT_URL:-http://10.43.10.43}
 
 echo "[scenario_14] ===== PVC Disk Pressure Test ====="
 echo "  namespace:   $NAMESPACE"
@@ -33,10 +36,22 @@ echo "  write path:  $WRITE_PATH"
 
 # --- Step 1: Find a running pod to write into ---
 if [ -z "$TARGET_POD" ]; then
-  TARGET_POD=$(kubectl get pods -n "$NAMESPACE" \
+  CANDIDATE_PODS=$(kubectl get pods -n "$NAMESPACE" \
     --field-selector=status.phase=Running \
     --no-headers -o custom-columns=NAME:.metadata.name \
-    | head -1)
+    || true)
+
+  while IFS= read -r candidate; do
+    [ -z "$candidate" ] && continue
+    if kubectl exec -n "$NAMESPACE" "$candidate" -- /bin/sh -c "echo ok" >/dev/null 2>&1; then
+      TARGET_POD="$candidate"
+      break
+    fi
+    if kubectl exec -n "$NAMESPACE" "$candidate" -- mkdir -p /tmp >/dev/null 2>&1; then
+      TARGET_POD="$candidate"
+      break
+    fi
+  done <<< "$CANDIDATE_PODS"
 fi
 
 if [ -z "$TARGET_POD" ]; then
@@ -81,7 +96,7 @@ kubectl exec -n "$NAMESPACE" "$TARGET_POD" -- \
   kubectl exec -n "$NAMESPACE" "$TARGET_POD" -- /bin/sh -c "df -h $WRITE_PATH" || true
 
 # --- Step 5: Verify via Prometheus (if accessible) ---
-PROMETHEUS_URL=${PROMETHEUS_URL:-http://localhost:9090}
+PROMETHEUS_URL=${PROMETHEUS_URL:-http://10.43.253.229:9090}
 echo "[scenario_14] Checking Prometheus PVC metrics (if accessible):"
 curl -s "${PROMETHEUS_URL}/api/v1/query" \
   --data-urlencode "query=kubelet_volume_stats_used_bytes{namespace=\"$NAMESPACE\"}" \

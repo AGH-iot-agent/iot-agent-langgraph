@@ -95,6 +95,7 @@ class AgentWatchdog:
         self._lock   = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="watchdog-dispatch")
         self._alerts: list[Alert] = []
+        self._last_graph_state: dict[str, Any] | None = None
         self._status: StatusReport = {
             "running": False, "last_tick": None,
             "last_error": None, "consecutive_failures": 0, "config": None,
@@ -162,6 +163,41 @@ class AgentWatchdog:
                 for a in self._alerts[-max(1, limit):]
             ]
 
+    def last_graph_state(self) -> dict[str, Any]:
+        """Slim telemetry from the most recent graph.invoke (plan, intercepts, security)."""
+        with self._lock:
+            return dict(self._last_graph_state or {})
+
+    def _store_graph_state(self, result: dict[str, Any]) -> None:
+        validation = result.get("validation_result") or {}
+        slim = {
+            "security_blocked": bool(result.get("security_blocked")),
+            "guardrails_enabled": result.get("guardrails_enabled"),
+            "requested_forbidden_actions": list(result.get("requested_forbidden_actions") or []),
+            "forbidden_tools_requested": list(result.get("forbidden_tools_requested") or []),
+            "validation_passed": bool(validation.get("passed")),
+            "fix_attempt": int(result.get("fix_attempt") or 0),
+            "pr_created": bool(result.get("pr_url")),
+            "pr_url": str(result.get("pr_url") or ""),
+            "validation_errors": list(validation.get("errors") or []),
+            "plan": list(result.get("plan") or []),
+            "execution_results": [
+                {
+                    "action": step.get("action"),
+                    "tool": step.get("tool"),
+                    "result": {
+                        "status": (step.get("result") or {}).get("status"),
+                        "executed": (step.get("result") or {}).get("executed"),
+                        "unsafe_action": (step.get("result") or {}).get("unsafe_action"),
+                    },
+                }
+                for step in (result.get("execution_results") or [])
+                if isinstance(step, dict)
+            ],
+        }
+        with self._lock:
+            self._last_graph_state = slim
+
     def _append_alert(self, kind: str, title: str, details: dict[str, Any]) -> None:
         with self._lock:
             self._alerts.append(Alert(ts=int(time.time()), kind=kind, title=title, details=details))
@@ -228,12 +264,14 @@ class AgentWatchdog:
         )
 
         try:
+            issue_payload = event_context.get("issue") if isinstance(event_context.get("issue"), dict) else {}
+            issue_body = event.body or str(issue_payload.get("body") or "")
             state = {
                 "trace_id":       trace_id,
-                "request":        event.to_prompt(),
+                "request":        f"[{event.kind.upper()}] {event.title}\n\n{issue_body}",
                 "event_kind":     event.kind,
                 "issue_title":    event.title,
-                "issue_body":     event.body,
+                "issue_body":     issue_body,
                 "dry_run":        effective_dry_run,
                 "context":        event_context,
                 "max_revisions":  1,
@@ -241,6 +279,8 @@ class AgentWatchdog:
                 "started_at":     time.time(),
             }
             result = self._graph.invoke(state)
+            if isinstance(result, dict):
+                self._store_graph_state(result)
             raw_comment = result.get("final_summary") or result.get("execution_summary") or event.to_prompt()
             comment = f"## gh_action_bot\n\n{raw_comment}"
 

@@ -13,13 +13,16 @@
 # Prerequisites: kubectl access to iotag-dev, GITHUB_TOKEN in .env
 
 set -euo pipefail
-
-export $(grep -v '^#' .env | xargs)
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
 NAMESPACE=${NAMESPACE:-iotag-dev}
 QUOTA_NAME=${QUOTA_NAME:-default-quota}
 TEST_DEPLOYMENT=${TEST_DEPLOYMENT:-iot-agent-sim-devices}
-AGENT_URL=${AGENT_URL:-http://localhost:8000}
+AGENT_URL=${AGENT_URL:-http://10.43.10.43}
 
 echo "[scenario_13] ===== ResourceQuota Exhaustion Test ====="
 echo "  namespace:   $NAMESPACE"
@@ -54,12 +57,12 @@ else
   echo "[scenario_13] Patching existing ResourceQuota pods limit to $((CURRENT_PODS + 1))"
   kubectl patch resourcequota "$QUOTA_NAME" -n "$NAMESPACE" \
     --type merge \
-    -p "{\"spec\":{\"hard\":{\"pods\":\"$((CURRENT_PODS + 1))\"}}}}"
+    -p "{\"spec\":{\"hard\":{\"pods\":\"$((CURRENT_PODS + 1))\"}}}"
   QUOTA_CREATED=false
 fi
 
-echo "[scenario_13] Quota set. Sleeping 5s for quota to propagate..."
-sleep 5
+echo "[scenario_13] Quota set. Sleeping 2s for quota to propagate..."
+sleep 2
 
 # --- Step 3: Scale up deployment to trigger quota violation ---
 ORIGINAL_REPLICAS=$(kubectl get deployment "$TEST_DEPLOYMENT" -n "$NAMESPACE" \
@@ -70,8 +73,8 @@ echo "[scenario_13] Scaling $TEST_DEPLOYMENT to $((ORIGINAL_REPLICAS + 3)) to ex
 kubectl scale deployment "$TEST_DEPLOYMENT" -n "$NAMESPACE" \
   --replicas=$((ORIGINAL_REPLICAS + 3)) || true
 
-echo "[scenario_13] Waiting 30s for quota violation event to be emitted..."
-sleep 30
+echo "[scenario_13] Waiting 5s for quota violation event to be emitted..."
+sleep 5
 
 # --- Step 4: Verify the quota violation appears in events ---
 echo "[scenario_13] Checking for quota violation events:"

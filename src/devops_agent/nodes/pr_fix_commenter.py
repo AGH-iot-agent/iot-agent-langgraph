@@ -8,11 +8,28 @@ from typing import Any
 
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
-from devops_agent.nodes.pr_creator import _patch_file_content
+from devops_agent.nodes.pr_creator import _enrich_files_with_originals, _patch_file_content
+from devops_agent.validators.file_roles import namespace_for_helm_values_path
 
 logger = logging.getLogger(__name__)
 
 _adapter = MCPAdapter()
+
+
+def _comment_namespace(
+    context: dict[str, Any],
+    validation: dict[str, Any],
+    files: list[dict[str, Any]],
+) -> str:
+    """Prefer the namespace actually used by sandbox validation (sbx values → iotag-sbx)."""
+    validation_ns = validation.get("namespace")
+    if isinstance(validation_ns, str) and validation_ns.strip():
+        return validation_ns
+    for entry in files:
+        path = str(entry.get("path", ""))
+        if path:
+            return namespace_for_helm_values_path(path, context.get("namespace", "iotag-sbx"))
+    return context.get("namespace", "iotag-sbx")
 
 
 def pr_fix_commenter_node(state: AgentState) -> AgentState:
@@ -34,7 +51,6 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     pr_number: int = context.get("pr_number", 0)
     branch: str = context.get("branch", "")
     run_url: str = context.get("run_url", "")
-    namespace: str = context.get("namespace", "iotag-dev")
 
     proposal: dict[str, Any] = state.get("ci_fix_proposal") or {}
     validation: dict[str, Any] = state.get("validation_result") or {}
@@ -46,12 +62,13 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
     error_message: str = proposal.get("error_message", "")
     description: str = proposal.get("description", "")
     files: list[dict[str, Any]] = proposal.get("files", [])
+    namespace: str = _comment_namespace(context, validation, files)
 
     dry_run: bool = state.get("dry_run", True)
     fix_pr_url: str | None = None
     fix_branch: str | None = None
-    
-    if files and repo and branch and not dry_run:
+
+    if files and repo and branch and not dry_run and validation.get("passed"):
         fix_branch, fix_pr_url = _create_fix_pr(
             repo,
             branch,
@@ -69,8 +86,11 @@ def pr_fix_commenter_node(state: AgentState) -> AgentState:
         else:
             logger.warning("[PR_FIX_COMMENTER] Could not create fix PR for %s#%d", repo, pr_number)
 
+    comment_files = _enrich_files_with_originals(
+        files, repo, branch, list(state.get("execution_results") or [])
+    )
     comment_body = _build_comment(
-        root_cause, files, run_url, namespace, validation, error_message, description,
+        root_cause, comment_files, run_url, namespace, validation, error_message, description,
         fix_pr_url=fix_pr_url, fix_branch=fix_branch,
         validation_history=validation_history,
         fix_attempt=fix_attempt,
@@ -243,9 +263,12 @@ def _file_diff(f: dict[str, Any]) -> str:
     if original == fixed:
         return ""
 
-    diff_str = "".join(difflib.unified_diff(
-        original.splitlines(keepends=True),
-        fixed.splitlines(keepends=True),
+    # lineterm="" strips newlines from the ---/+++/@@ headers, so the input lines must be
+    # newline-free too and get rejoined here; mixing keepends=True glues the headers into
+    # one unreadable "--- a/x+++ b/x@@" line.
+    diff_str = "\n".join(difflib.unified_diff(
+        original.splitlines(),
+        fixed.splitlines(),
         fromfile=f"a/{path}",
         tofile=f"b/{path}",
         lineterm="",

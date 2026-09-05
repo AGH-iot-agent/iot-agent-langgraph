@@ -22,8 +22,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GHAdapter:
+    """GitHub CLI adapter.
+
+    ``token`` overrides ``GH_TOKEN`` / ``GITHUB_TOKEN`` for this instance only.
+    Tests use a non-agent PAT to open fixture issues/PRs; the agent process
+    keeps the bot token from the environment.
+    """
+
+    token: str | None = None
+
+    def _gh_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self.token:
+            env["GH_TOKEN"] = self.token
+            env["GITHUB_TOKEN"] = self.token
+        return env
+
     def _gh_auth_error(self) -> str | None:
-        if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        env = self._gh_env()
+        if env.get("GH_TOKEN") or env.get("GITHUB_TOKEN"):
             return None
 
         try:
@@ -31,7 +48,7 @@ class GHAdapter:
                 ["gh", "auth", "status"],
                 capture_output=True,
                 text=True,
-                env=os.environ,
+                env=env,
                 timeout=10,
             )
         except FileNotFoundError:
@@ -52,7 +69,7 @@ class GHAdapter:
         if auth_error:
             raise RuntimeError(auth_error)
 
-        kwargs: dict[str, Any] = {"capture_output": True, "text": True, "env": os.environ}
+        kwargs: dict[str, Any] = {"capture_output": True, "text": True, "env": self._gh_env()}
         if input_payload is not None:
             kwargs["input"] = input_payload
         return subprocess.run(cmd, **kwargs)

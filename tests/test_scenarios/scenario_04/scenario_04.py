@@ -13,6 +13,7 @@ from devops_agent.event import AgentEvent
 from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog
+from tests.test_scenarios.github_tokens import non_agent_gh_adapter
 
 TARGET_REPO      = os.environ.get("TEST_POM_FIX_TARGET_REPO", "AGH-iot-agent/iot-agent-gateway-api")
 BASE_BRANCH      = os.environ.get("TEST_POM_FIX_BASE_BRANCH", "main")
@@ -38,7 +39,7 @@ def _require_env() -> None:
 
 @pytest.fixture(scope="module")
 def gh() -> GHAdapter:
-    return GHAdapter()
+    return non_agent_gh_adapter()
 
 
 @pytest.fixture(scope="module")
@@ -229,6 +230,7 @@ def test_scenario04_gateway_pom_bump_docker_build_root_cause(
     mcp_adapter: MCPAdapter,
     gh: GHAdapter,
     monkeypatch: pytest.MonkeyPatch,
+    agent_mode: str,
 ) -> None:
     """PR -> FAIL -> REASONING -> PR COMMENT, with every step backed by a
     real call against the live PR/CI - nothing faked.
@@ -243,6 +245,10 @@ def test_scenario04_gateway_pom_bump_docker_build_root_cause(
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.fail("OPENAI_API_KEY is required (ci_fixer calls the LLM).")
 
+    from tests.test_scenarios.run_metrics import metrics_snapshot, record_live_comment
+
+    started_at = time.time()
+    metrics_before = metrics_snapshot()
     branch = live_gateway_pom_pr["branch"]
     pr_number = live_gateway_pom_pr["pr_number"]
     head_sha = live_gateway_pom_pr["head_sha"]
@@ -258,7 +264,7 @@ def test_scenario04_gateway_pom_bump_docker_build_root_cause(
     monkeypatch.setattr(_sandbox_validator_module, "_adapter", mcp_adapter)
     monkeypatch.setattr(_pr_fix_commenter_module, "_adapter", mcp_adapter)
 
-    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(), monitors=[])
+    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(agent_mode=agent_mode), monitors=[])
     event = AgentEvent(
         kind="github_pr_build_failure",
         title=f"{TARGET_REPO}#{pr_number}: CI failed for branch {branch}",
@@ -291,31 +297,46 @@ def test_scenario04_gateway_pom_bump_docker_build_root_cause(
     if newest_id:
         live_gateway_pom_pr["posted_comment_ids"].append(newest_id)
 
-    comment_body = matching[-1].get("body", "").lower()
+    comment_body = matching[-1].get("body", "")
 
-    assert DEPENDENCY_ARTIFACT_ID.lower() in comment_body, (
-        f"Agent's PR comment does not mention the offending dependency "
-        f"'{DEPENDENCY_ARTIFACT_ID}' - it may have stopped at the docker-build "
-        f"symptom instead of tracing back to the Maven root cause. "
-        f"comment={comment_body[:500]!r}"
-    )
-    assert DEPENDENCY_BAD_VERSION in comment_body, (
-        f"Agent's PR comment does not mention the unpublished version "
-        f"'{DEPENDENCY_BAD_VERSION}' - root-cause identification may be incomplete. "
-        f"comment={comment_body[:500]!r}"
+    from tests.test_scenarios.requirement_asserts import (
+        assert_comment_structure,
+        assert_ground_truth_diagnosis,
+        assert_keywords_present,
+        assert_target_files,
     )
 
-    assert POM_PATH in comment_body, (
-        f"Agent's PR comment does not propose a change to '{POM_PATH}' - it may have "
-        f"misclassified this as a Helm/manifest issue instead of a Maven dependency "
-        f"issue. comment={comment_body[:500]!r}"
-    )
-    _helm_paths_mentioned = [
-        p for p in ("helm/values-dev.yaml", "helm/values-sbx.yaml") if p in comment_body
-    ]
-    assert not _helm_paths_mentioned, (
-        f"Agent's PR comment proposes changes to Helm values file(s) {_helm_paths_mentioned} "
-        f"for what is a pure Maven dependency-resolution failure - this is the exact "
-        f"misclassification regression this test guards against. "
-        f"comment={comment_body[:800]!r}"
-    )
+    try:
+        assert_comment_structure(comment_body)
+        assert_keywords_present(comment_body, (DEPENDENCY_ARTIFACT_ID, DEPENDENCY_BAD_VERSION, POM_PATH))
+        assert_target_files(comment_body, (POM_PATH,))
+        lower = comment_body.lower()
+        _helm_paths_mentioned = [
+            p for p in ("helm/values-dev.yaml", "helm/values-sbx.yaml") if p in lower
+        ]
+        assert not _helm_paths_mentioned, (
+            f"Agent's PR comment proposes changes to Helm values file(s) {_helm_paths_mentioned} "
+            f"for what is a pure Maven dependency-resolution failure - this is the exact "
+            f"misclassification regression this test guards against. "
+            f"comment={comment_body[:800]!r}"
+        )
+        assert_ground_truth_diagnosis(comment_body, "04")
+        record_live_comment(
+            scenario_id="04",
+            agent_mode=agent_mode,
+            comment_body=comment_body,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=True,
+        )
+    except Exception as exc:
+        record_live_comment(
+            scenario_id="04",
+            agent_mode=agent_mode,
+            comment_body=comment_body,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=False,
+            error=str(exc),
+        )
+        raise

@@ -56,13 +56,27 @@ class GitHubIssueMonitor(BaseMonitor):
 
                     title_lower = issue.get("title", "").lower()
                     is_infra = bool(labels_set & INFRA_LABELS) or any(kw in title_lower for kw in INFRA_TITLE_KEYWORDS)
+                    body = str(issue.get("body") or "")
+                    if not body.strip() and issue_number:
+                        full = self._adapter.run(
+                            "github",
+                            "get_issue",
+                            {"repo": repo_full_name, "issue_number": issue_number},
+                            dry_run=False,
+                        )
+                        if full.get("status") == "ok":
+                            fetched = full.get("issue") or full
+                            if isinstance(fetched, dict):
+                                body = str(fetched.get("body") or "")
+                                issue = {**issue, **fetched}
                     logger.info("[GitHubIssueMonitor] Detected issue: %s#%d (infra=%s) with labels %s", repo_full_name, issue_number, is_infra, labels_set)
                     events.append(AgentEvent(
                         kind="github_issue",
                         title=f"{repo_full_name}#{issue_number}: {issue.get('title')}",
+                        body=body,
                         context={
                             "repo": repo,
-                            "issue": issue,
+                            "issue": {**issue, "body": body},
                             "is_infra": is_infra,
                             "repo_full_name": repo_full_name,
                             "issue_number": issue_number,

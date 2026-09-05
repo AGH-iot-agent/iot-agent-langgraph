@@ -42,7 +42,19 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
     branch = context.get("branch", "main")
     namespace = context.get("namespace", "iotag-sbx")
 
+    # Kubernetes first: Helm --atomic rollback can wipe OOM pods if we wait for
+    # GitHub log download. The monitor also attaches cluster_snapshot/oom_evidence.
     plan: list[PlanStep] = [
+        {
+            "tool": "kubernetes",
+            "action": "get_pods",
+            "args": {"namespace": namespace},
+        },
+        {
+            "tool": "kubernetes",
+            "action": "get_events",
+            "args": {"namespace": namespace},
+        },
         {
             "tool": "github",
             "action": "get_job_logs",
@@ -63,20 +75,23 @@ def _ci_failure_plan(state: AgentState, request: str) -> list[PlanStep]:
             "action": "get_file_content",
             "args": {"repo": repo, "path": "Helm/values-sbx.yaml", "ref": branch},
         },
-        # K8s state in the deploy target namespace — critical for deploy-step failures
-        {
-            "tool": "kubernetes",
-            "action": "get_pods",
-            "args": {"namespace": namespace},
-        },
-        {
-            "tool": "kubernetes",
-            "action": "get_events",
-            "args": {"namespace": namespace},
-        },
     ]
 
-    # Fetch recent pod logs from Loki to catch CrashLoopBackOff / OOMKilled messages
+    for item in (context.get("oom_evidence") or [])[:3]:
+        pod_name = str(item.get("pod") or "")
+        if not pod_name:
+            continue
+        plan.append({
+            "tool": "kubernetes",
+            "action": "describe_pod",
+            "args": {"pod_name": pod_name, "namespace": namespace},
+        })
+        plan.append({
+            "tool": "kubernetes",
+            "action": "get_pod",
+            "args": {"pod_name": pod_name, "namespace": namespace},
+        })
+
     service = _infer_service_from_repo(repo)
     if service:
         plan.append({
@@ -388,38 +403,76 @@ def _infra_issue_plan(state: AgentState, request: str) -> list[PlanStep]:
         or (context.get("pr") or {}).get("head", {}).get("ref", "")
         or "main"
     )
-    plan: list[PlanStep] = [
-        {
+    event_kind = str(state.get("event_kind") or "")
+    run_id = context.get("run_id", 0)
+    # For PRs: CI status + cluster first. Commenting from Helm values alone
+    # (e.g. "32Mi looks like Spring Boot OOM") is the premature-comment failure.
+    plan: list[PlanStep] = []
+    if event_kind == "github_pr":
+        plan.append({
             "tool": "github",
-            "action": "get_file_content",
-            "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": branch},
-        },
-        {
-            "tool": "github",
-            "action": "get_file_content",
-            "args": {"repo": repo, "path": "Helm/values-sbx.yaml", "ref": branch},
-        },
-        {
-            "tool": "github",
-            "action": "get_file_content",
-            "args": {"repo": repo, "path": ".github/workflows/ci.yml", "ref": branch},
-        },
-        {
-            "tool": "github",
-            "action": "get_commit_history",
-            "args": {"repo": repo, "per_page": 5},
-        },
-        {
-            "tool": "kubernetes",
-            "action": "get_pods",
-            "args": {"namespace": namespace},
-        },
-        {
-            "tool": "kubernetes",
-            "action": "get_events",
-            "args": {"namespace": namespace},
-        },
-    ]
+            "action": "get_workflow_runs",
+            "args": {"repo": repo, "per_page": 10},
+        })
+        if run_id:
+            plan.append({
+                "tool": "github",
+                "action": "get_job_logs",
+                "args": {"repo": repo, "run_id": run_id, "job_id": 0},
+            })
+        plan.extend(
+            [
+                {
+                    "tool": "kubernetes",
+                    "action": "get_pods",
+                    "args": {"namespace": namespace},
+                },
+                {
+                    "tool": "kubernetes",
+                    "action": "get_events",
+                    "args": {"namespace": namespace},
+                },
+            ]
+        )
+    plan.extend(
+        [
+            {
+                "tool": "github",
+                "action": "get_file_content",
+                "args": {"repo": repo, "path": "Helm/values-dev.yaml", "ref": branch},
+            },
+            {
+                "tool": "github",
+                "action": "get_file_content",
+                "args": {"repo": repo, "path": "Helm/values-sbx.yaml", "ref": branch},
+            },
+            {
+                "tool": "github",
+                "action": "get_file_content",
+                "args": {"repo": repo, "path": ".github/workflows/ci.yml", "ref": branch},
+            },
+            {
+                "tool": "github",
+                "action": "get_commit_history",
+                "args": {"repo": repo, "per_page": 5},
+            },
+        ]
+    )
+    if event_kind != "github_pr":
+        plan.extend(
+            [
+                {
+                    "tool": "kubernetes",
+                    "action": "get_pods",
+                    "args": {"namespace": namespace},
+                },
+                {
+                    "tool": "kubernetes",
+                    "action": "get_events",
+                    "args": {"namespace": namespace},
+                },
+            ]
+        )
 
     # Loki logs for the service mentioned in the issue (e.g. CrashLoopBackOff / HikariPool errors)
     service = _infer_service_from_repo(repo)
@@ -665,9 +718,8 @@ def _extract_search_terms(issue_body: str) -> list[str]:
     return list(dict.fromkeys(terms))
 
 def _infer_service_from_repo(repo_full_name: str) -> str:
-    name = repo_full_name.split("/")[-1]
-    name = name.replace("iot-agent-", "")
-    return f"{name}-api" if name else ""
+    """K8s app / Helm release name is the repo basename (iot-agent-login-screen)."""
+    return repo_full_name.split("/")[-1] if repo_full_name else ""
 
 def _infer_service(text: str) -> str:
     import re

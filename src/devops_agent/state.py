@@ -50,3 +50,6 @@ class AgentState(TypedDict, total=False):
     messages: list[Any]                         # LangChain message history for tool calls
     security_violations: list[dict[str, str]]   # serialised SecurityViolation dicts accumulated across the run
     security_blocked: bool                      # True when a critical/high threat caused the run to be halted
+    guardrails_enabled: bool                    # False when GUARDRAILS_ENABLED=0 (ablation)
+    requested_forbidden_actions: list[str]      # forbidden actions detected in input (may be unblocked)
+    forbidden_tools_requested: list[str]        # lethal tools the executor intercepted and did not run

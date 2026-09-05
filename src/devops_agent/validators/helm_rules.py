@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from devops_agent.validators.common import apply_text_patch, deep_merge, fetch_base_text
+from devops_agent.validators.common import deep_merge, fetch_base_text, resolve_proposed_text
 
 logger = logging.getLogger(__name__)
 
@@ -119,23 +119,29 @@ def validate_helm_values_file(
 ) -> tuple[list[str], list[str], dict[str, Any]]:
     errors: list[str] = []
     outputs: list[str] = []
+    base_text = fetch_base_text(adapter, repo, path, branch) or ""
+    text_patched, patchable, patch_reason = resolve_proposed_text(
+        base_text, original_snippet, content
+    )
     patch_meta: dict[str, Any] = {
-        "patchable": True,
-        "patch_reason": "snippet_replaced" if original_snippet else "full_file_replacement",
+        "patchable": patchable,
+        "patch_reason": patch_reason,
+        "namespace": namespace,
     }
 
-    base_text = fetch_base_text(adapter, repo, path, branch) or ""
-    text_patched, snippet_found = apply_text_patch(base_text, original_snippet, content)
-    text_patched = normalize_yaml_content(text_patched)
-
-    if original_snippet and not snippet_found:
-        patch_meta["patchable"] = False
-        patch_meta["patch_reason"] = "original_snippet_not_found"
-        errors.append(
-            f"{path}: original_snippet not found in base branch content - proposal is not safely patchable"
-        )
+    if not patchable:
+        if patch_reason == "original_snippet_not_found":
+            errors.append(
+                f"{path}: original_snippet not found in base branch content - proposal is not safely patchable"
+            )
+        else:
+            errors.append(
+                f"{path}: proposal content is a snippet, not a full file, and cannot replace the base file safely"
+            )
         outputs.append(f"{path}: patchability check failed")
         return errors, outputs, patch_meta
+
+    text_patched = normalize_yaml_content(text_patched)
 
     values_override = _inject_ci_values_for_helm(text_patched, service_name=service_name)
 

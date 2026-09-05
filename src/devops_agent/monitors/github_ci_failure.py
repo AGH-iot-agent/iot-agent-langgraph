@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from devops_agent.monitors.base import BaseMonitor
 from devops_agent.event import AgentEvent
+from devops_agent.k8s_signals import snapshot_deploy_namespace
 from devops_agent.mcp_adapter import MCPAdapter
 import time
 import datetime
@@ -114,6 +115,10 @@ class GitHubCIFailureMonitor(BaseMonitor):
                     continue
 
                 alerted_in_repo.add(run_id)
+                service = repo_full_name.rsplit("/", 1)[-1]
+                cluster = snapshot_deploy_namespace(
+                    self._adapter, "iotag-sbx", service=service,
+                )
                 events.append(AgentEvent(
                     kind="github_ci_failure",
                     title=f"{repo_full_name}: CI failure on {branch} (run #{run_id})",
@@ -124,6 +129,8 @@ class GitHubCIFailureMonitor(BaseMonitor):
                         "workflow_name": run.get("name", ""),
                         "run_url": run.get("html_url", ""),
                         "namespace": "iotag-sbx",
+                        "cluster_snapshot": cluster,
+                        "oom_evidence": cluster.get("oom_evidence") or [],
                     },
                 ))
 

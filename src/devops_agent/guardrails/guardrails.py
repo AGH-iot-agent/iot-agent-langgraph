@@ -35,9 +35,6 @@ from devops_agent.security import SecurityScanResult, SecurityViolation, securit
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Guardrails AI – lazy initialisation with graceful fallback
-# ---------------------------------------------------------------------------
 
 _output_guard = None          # Guard | None
 _GUARDRAILS_AVAILABLE = False  # becomes True when hub validators load

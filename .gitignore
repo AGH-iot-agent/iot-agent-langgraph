@@ -11,5 +11,9 @@ iot_Agent_langgraph.egg-info/
 ./logs/*
 .vscode/
 logs/
+tests/test_scenarios/reports/*
+!tests/test_scenarios/reports/.gitkeep
+tests/test_scenarios/logs/*
+!tests/test_scenarios/logs/.gitkeep
 venv/
 .dev_env.env

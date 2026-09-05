@@ -5,14 +5,14 @@
 **Failing run:** https://github.com/AGH-iot-agent/iot-agent-login-screen/actions/runs/9876543
 
 ### Root Cause
-YAML indentation error under livenessProbe
+YAML indentation error in livenessProbe section
 
 **Error message:**
 ```
 YAML parse error on Helm/values-sbx.yaml: error converting YAML to JSON: yaml: line 42: mapping values are not allowed here (livenessProbe key)
 ```
 
-The livenessProbe section is incorrectly indented, causing a YAML parsing error.
+livenessProbe key is not properly indented, causing a YAML parsing error during Helm upgrade.
 
 ### Changed Files
 - `Helm/values-sbx.yaml`
@@ -67,7 +67,11 @@ The livenessProbe section is incorrectly indented, causing a YAML parsing error.
  
  
  # readinessProbes are used to determine when a container is ready to start accepting traffic
-
+@@ -377,4 +377,4 @@     #   verbs: ["get", "list", "watch"]
+ 
+   ## Make this into a clusterwide role to give access to all namespaces if desired, disabled by default for more security
+-  clusterWideAccess: false
++  clusterWideAccess: false
 ```
 
 </details>

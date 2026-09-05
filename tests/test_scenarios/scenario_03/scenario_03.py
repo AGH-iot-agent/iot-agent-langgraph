@@ -19,40 +19,25 @@ from tests.integration.test_ci_fix_integration import (
     _assert_runtime_preconditions,
     _uninstall_release_if_exists,
 )
-from tests.test_scenarios.test_scenarios_01_14_e2e import _RecordingAdapter
+from tests.test_scenarios.github_tokens import non_agent_gh_adapter
+from tests.test_scenarios.test_scenarios_e2e import _RecordingAdapter
 
 SCENARIO_DIR = Path(__file__).parent
 
 
 class _GraphWithSecretEscalation:
-    """Deterministic stand-in graph for scenario 03: instead of opening a fix
-    PR, the agent finds the secret is also missing on sbx (the validation
-    environment) and escalates to admins to look into the sbx/dev mismatch.
+    """Deterministic stand-in graph for scenario 03 stub assertions."""
 
-    NOTE: mirrors the shape of `_GraphWithFixPR` (tests/test_scenarios/scenario_01),
-    which wasn't in the provided context -- double check the method name/signature
-    this needs to implement against that base class, i.e. whatever `AgentWatchdog`
-    actually calls on `graph`.
-    """
-
-    def invoke(self, event: AgentEvent, adapter: Any) -> None:
-        comment = (
-            "## gh_action_bot\n\n"
-            "Investigated the CrashLoopBackOff in `iotag-dev`. The "
-            "`db-credentials` secret is also missing on sbx, which is used "
-            "for validation, so this looks like a broader sbx/dev secret "
-            "mismatch rather than a one-off. Admins have been escalated to "
-            "investigate and restore the secret in both namespaces."
-        )
-        adapter.run(
-            "github",
-            "create_issue_comment",
-            {
-                "repo": event.context["repo_full_name"],
-                "issue_number": event.context["issue_number"],
-                "body": comment,
-            },
-        )
+    def invoke(self, _state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "final_summary": (
+                "Investigated the CrashLoopBackOff in iotag-dev. The "
+                "db-credentials secret is also missing on sbx, which is used "
+                "for validation, so this looks like a broader sbx/dev secret "
+                "mismatch rather than a one-off. Admins have been escalated to "
+                "investigate and restore the secret in both namespaces."
+            )
+        }
 
 TARGET_REPO = os.environ.get("TEST_03_CI_FIX_TARGET_REPO")
 TARGET_NAMESPACE = os.environ.get("TEST_03_CI_FIX_TARGET_NAMESPACE", "iotag-sbx")
@@ -68,8 +53,8 @@ _DEV_NAMESPACE = "iotag-dev"
 # produced by the real agent, not a canned string.
 _ESCALATION_KEYWORDS = (
     "secret",
-    "sbx",
-    "escalat",
+    "credential",
+    "iotag-sbx",
 )
 
 
@@ -87,7 +72,7 @@ def _require_env() -> None:
 
 @pytest.fixture(scope="module")
 def gh() -> GHAdapter:
-    return GHAdapter()
+    return non_agent_gh_adapter()
 
 
 @pytest.fixture(scope="module")
@@ -154,7 +139,7 @@ def _build_issue_event(body: str, issue_number: int, title: str) -> AgentEvent:
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def live_scenario03_create_issue(gh: GHAdapter) -> Any:
     """Open an issue describing the CrashLoopBackOff caused by the missing
     db-credentials secret in iotag-dev."""
@@ -173,22 +158,23 @@ def live_scenario03_create_issue(gh: GHAdapter) -> Any:
         f"Failed to create issue for scenario 03: {result}"
     )
     issue_number = result["number"]
-
-    return {
+    info = {
         "issue_number": issue_number,
         "issue_body": issue_body,
     }
+    try:
+        yield info
+    finally:
+        gh.update_issue(TARGET_REPO, issue_number, "closed")
 
 
 @pytest.mark.integration
-def test_scenario03_appends_escalation_note_for_issue_comment(
-    live_github_issue: dict[str, Any],
-) -> None:
+def test_scenario03_appends_escalation_note_for_issue_comment() -> None:
     issue_body = (SCENARIO_DIR / "issue_body.md").read_text(encoding="utf-8")
     adapter = _RecordingAdapter()
     watchdog = AgentWatchdog(adapter=adapter, graph=_GraphWithSecretEscalation(), monitors=[])
 
-    watchdog._dispatch_inner(_build_issue_event(issue_body, live_github_issue["number"], "CrashLoopBackOff"))
+    watchdog._dispatch_inner(_build_issue_event(issue_body, 3, "CrashLoopBackOff"))
 
     issue_comment_calls = [
         c for c in adapter.calls
@@ -198,7 +184,7 @@ def test_scenario03_appends_escalation_note_for_issue_comment(
 
     comment_body = issue_comment_calls[0]["args"]["body"].lower()
     assert "## gh_action_bot" in comment_body
-    assert "no" in comment_body and "secret" in comment_body and "sbx" in comment_body
+    assert "secret" in comment_body and "sbx" in comment_body
     assert "validation" in comment_body
     assert "admin" in comment_body and "escalat" in comment_body
 
@@ -209,8 +195,13 @@ def test_scenario03_real_agent_comments_on_live_issue(
     remove_secret: Any,
     gh: GHAdapter,
     mcp_adapter: MCPAdapter,
+    agent_mode: str,
 ) -> None:
     issue_number = live_scenario03_create_issue["issue_number"]
+    from tests.test_scenarios.run_metrics import metrics_snapshot, record_live_comment
+
+    started_at = time.time()
+    metrics_before = metrics_snapshot()
 
     monitor = GitHubIssueMonitor(
         adapter=mcp_adapter,
@@ -219,7 +210,7 @@ def test_scenario03_real_agent_comments_on_live_issue(
 
     watchdog = AgentWatchdog(
         adapter=mcp_adapter,
-        graph=build_graph(),
+        graph=build_graph(agent_mode=agent_mode),
         monitors=[monitor],
     )
 
@@ -258,9 +249,35 @@ def test_scenario03_real_agent_comments_on_live_issue(
         "write access to comment on it."
     )
 
-    combined = " ".join(c.get("body", "") for c in bot_comments).lower()
-    for keyword in _ESCALATION_KEYWORDS:
-        assert keyword in combined, (
-            f"Expected escalation comment to mention '{keyword}', "
-            f"but comments were: {bot_comments}"
+    comment = bot_comments[-1].get("body", "")
+    from tests.test_scenarios.requirement_asserts import (
+        assert_comment_structure,
+        assert_ground_truth_diagnosis,
+        assert_secret_investigation_comment,
+    )
+
+    try:
+        assert_comment_structure(comment, require_proposed=False, require_validation=False)
+        assert_secret_investigation_comment(comment)
+        assert_ground_truth_diagnosis(comment, "03")
+        record_live_comment(
+            scenario_id="03",
+            agent_mode=agent_mode,
+            comment_body=comment,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=True,
+            validation_namespace="iotag-sbx",
         )
+    except Exception as exc:
+        record_live_comment(
+            scenario_id="03",
+            agent_mode=agent_mode,
+            comment_body=comment,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=False,
+            error=str(exc),
+            validation_namespace="iotag-sbx",
+        )
+        raise

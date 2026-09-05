@@ -1,0 +1,195 @@
+name: "iot-agent-login-screen"
+replicaCount: "not-a-number"
+minReadySeconds: false
+revisionHistoryLimit: 10
+priorityClassName: ""
+shareProcessNamespace: false
+image:
+  tag: ""
+  repository: ""
+  command: []
+  args: []
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+security:
+  runAsNonRoot: false
+  runAsUser: 1000
+  fsGroup: 1000
+
+istio:
+  gateway:
+    createIfMissing: false
+    namespace: istio-system
+    name: istio-ingressgateway
+    selector:
+      istio: ingressgateway
+    port: 80
+    protocol: HTTP
+  virtualService:
+    enabled: true
+    name: "iot-agent-login-screen"
+    annotations: {}
+    hosts:
+      - wrong-host.iotag-dev.com
+    gateways:
+      - istio-system/istio-ingressgateway
+    http:
+      - match:
+          - uri:
+              prefix: /
+        route:
+          - destination:
+              host: iot-agent-login-screen.iotag-sbx.svc.cluster.local
+              port:
+                number: 80
+
+ingress:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific 
+  annotations: {}
+  hosts:
+    - host: iot-agent-login-screen-sbx.iotag-sbx
+      paths:
+        - /
+  tls: []
+
+ingress_secondary:
+  enabled: false
+  name: ""
+  nginx_affinity: true
+  nginx_class: "traefik"
+  ingressClassName: "traefik"
+  pathType: ImplementationSpecific 
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - /
+  tls: []
+
+service:
+  enabled: false
+  annotations: {}
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+  name: default-service
+  additionalPorts: []
+
+additionalPorts: []
+podAnnotations: {}
+usingNewRecommendedLabels: false
+labels: {}
+labelsEnableDefault: true
+lifecycle: {}
+
+globalEnvs:
+  - name: GATEWAY_ROUTES_0_PATH
+    value: "/devices"
+  - name: GATEWAY_ROUTES_0_SERVICE
+    value: "iot-agent-device-api"
+  - name: GATEWAY_ROUTES_1_PATH
+    value: "/alerts"
+  - name: GATEWAY_ROUTES_1_SERVICE
+    value: "iot-agent-alert-api"
+  - name: GATEWAY_ROUTES_2_PATH
+    value: "/logs"
+  - name: GATEWAY_ROUTES_2_SERVICE
+    value: "iot-agent-logs"
+  - name: GATEWAY_ROUTES_3_PATH
+    value: "/summary"
+  - name: GATEWAY_ROUTES_3_SERVICE
+    value: "iot-agent-dashboard-api"
+  - name: AUTH_UPSTREAM
+    value: "http://iot-agent-authentication.iotag-sbx.svc.cluster.local:80"
+
+
+globalEnvsSecondary: []
+extraEnvs: []
+tty: false
+envFrom: []
+usingMemoryKibiBytesEnvs: false
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 120
+  periodSeconds: 10
+  timeoutSeconds: 9
+  successThreshold: 1
+  failureThreshold: 3
+  probeType: httpGet
+  scheme: HTTP
+  path: /invalid-path-for-liveness-probe
+  port: default-service
+  command: []
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 4
+  successThreshold: 2
+  failureThreshold: 2
+  probeType: httpGet
+  scheme: HTTP
+  path: /
+  port: default-service
+  command: []
+
+dnsConfig:
+  enabled: false
+  ndots: 6
+  options: []
+  searches: []
+  nameservers: []
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+initContainers: []
+extraContainers: []
+volumes: []
+volumeMounts: []
+securityGroupIDs: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 90
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 25%
+    maxSurge: 25%
+
+
+global:
+  image:
+    tag: ""
+  namespace: "iotag-sbx"
+
+sidecar:
+  enabled: false
+
+serviceAccount:
+  enabled: false
+  annotations: {}
+
+hostname: ""
+
+rbac:
+  create: false
+  rules:
+  clusterWideAccess: false

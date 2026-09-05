@@ -5,9 +5,13 @@
 #           proposes replicaCount increase or HPA.
 
 set -euo pipefail
-export $(grep -v '^#' .env | xargs)
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
-TARGET_URL=${TARGET_URL:-"https://iot-agent-alert-api-dev.iotag-dev.com/actuator/health"}
+TARGET_URL=${TARGET_URL:-"http://iot-agent-alert-api-dev.iotag-dev.com/actuator/health"}
 CONCURRENCY=${CONCURRENCY:-30}
 DURATION_S=${DURATION_S:-90}
 REQUEST_DELAY=${REQUEST_DELAY:-0.1}  # 100ms between requests per worker → ~300 req/s total

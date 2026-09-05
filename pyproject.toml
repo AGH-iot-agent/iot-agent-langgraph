@@ -53,8 +53,18 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py", "scenario_*.py"]
 markers = [
   "integration: tests that require external systems like SMB share and Kubernetes cluster",
+  "e2e: live scenario tests that create GitHub issues/PRs or cluster load",
+  "helm_repo: scenario whose target sibling workspace has Helm/values-*.yaml",
+  "repo_login_screen: scenarios targeting iot-agent-login-screen",
+  "repo_authentication: scenarios targeting iot-agent-authentication",
+  "repo_gateway_api: scenarios targeting iot-agent-gateway-api",
+  "repo_db_ops: scenarios targeting iot-agent-db-ops",
+  "repo_alert_api: scenarios targeting iot-agent-alert-api",
+  "repo_logs: scenarios targeting iot-agent-logs",
+  "repo_dashboard_api: scenarios targeting iot-agent-dashboard-api",
 ]
 log_cli = true
 log_cli_level = "INFO"

@@ -5,25 +5,30 @@
 #           proposes fix (correct VS host pattern), opens PR to PR branch.
 
 set -euo pipefail
-export $(grep -v '^#' .env | xargs)
-
-GH_TOKEN=${GH_TOKEN:-""}
+_THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${_THIS_DIR}"
+# shellcheck disable=SC1091
+source "${_THIS_DIR}/../_github_setup_token.sh"
 OWNER=AGH-iot-agent
 REPO=iot-agent-dashboard-api
 
-if [ -z "$GH_TOKEN" ]; then
-  echo "Error: GH_TOKEN is not set in .env"
-  exit 1
-fi
 
 RANDOM_SUFFIX=$(date +%s)
 BRANCH="test/scenario_12_${RANDOM_SUFFIX}"
+WORKDIR="/tmp/scenario_12_repo_${RANDOM_SUFFIX}"
+
+cleanup() {
+  rm -rf "$WORKDIR"
+}
+trap cleanup EXIT
 
 echo "[scenario_12] Cloning $OWNER/$REPO..."
-git clone "https://${GH_TOKEN}@github.com/${OWNER}/${REPO}.git" /tmp/scenario_12_repo
-cd /tmp/scenario_12_repo
+git clone "https://${GH_TOKEN}@github.com/${OWNER}/${REPO}.git" "$WORKDIR"
+cd "$WORKDIR"
 
 git checkout -b "$BRANCH"
+git config user.email "${GIT_AUTHOR_EMAIL:-scenario-tests@iot-agent.local}"
+git config user.name "${GIT_AUTHOR_NAME:-iot-agent-scenario}"
 
 echo "[scenario_12] Injecting wrong VS host into Helm/values-sbx.yaml..."
 python3 - <<'PYEOF'
@@ -55,6 +60,5 @@ gh pr create \
   --body "This PR intentionally sets a wrong VirtualService host (iotag-dev domain in sbx values). The CI deploy step should fail. The agent should detect the misconfiguration and propose the correct host pattern." \
   --base main
 
-cd /tmp && rm -rf /tmp/scenario_12_repo
 echo "[scenario_12] Done. PR created on $REPO branch $BRANCH."
 

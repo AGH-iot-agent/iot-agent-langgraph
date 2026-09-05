@@ -13,6 +13,8 @@ from devops_agent.llm_utils import invoke_with_retry as _invoke_with_retry
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
 from devops_agent.prompts import _build_system_prompt
+from devops_agent.validators.common import resolve_proposed_text
+from devops_agent.validators.file_roles import is_helm_values_file
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,39 @@ def _extract_json_object(text: str) -> str | None:
     return _scan_best_json_object(text)
 
 
+def _coerce_proposal_files(proposal: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize LLM output so downstream nodes always see a ``files`` list.
+
+    Models often return a single file dict (``{"path": "...", "content": "..."}``)
+    instead of wrapping it in ``files``. Without this, ci_fixer stores an empty
+    ``files`` list and sandbox_validator / tests report "produced no files"
+    even though path+content are present on the proposal.
+    """
+    if not isinstance(proposal, dict):
+        return {"files": []}
+
+    files = proposal.get("files")
+    if isinstance(files, dict):
+        proposal["files"] = [files]
+        return proposal
+    if isinstance(files, list):
+        return proposal
+
+    path = proposal.get("path")
+    has_body = any(key in proposal for key in ("content", "fixed_snippet", "original_snippet"))
+    if isinstance(path, str) and path.strip() and has_body:
+        entry: dict[str, Any] = {"path": path}
+        for key in ("content", "fixed_snippet", "original_snippet"):
+            if key in proposal:
+                entry[key] = proposal.pop(key)
+        proposal.pop("path", None)
+        proposal["files"] = [entry]
+        return proposal
+
+    proposal["files"] = []
+    return proposal
+
+
 def _parse_proposal_json(raw: str) -> dict[str, Any] | None:
     json_str = _extract_json_object(raw)
     if json_str is None:
@@ -117,7 +152,7 @@ def _parse_proposal_json(raw: str) -> dict[str, Any] | None:
     if not isinstance(parsed, dict):
         return None
 
-    return parsed
+    return _coerce_proposal_files(parsed)
 
 
 def _retry_llm_for_json(llm, bad_output: str, messages: list) -> dict[str, Any]:
@@ -130,7 +165,7 @@ def _retry_llm_for_json(llm, bad_output: str, messages: list) -> dict[str, Any]:
     parsed = _parse_proposal_json(resp.content)
     if parsed is None:
         raise ValueError("Still no valid JSON after retry")
-    return parsed
+    return _coerce_proposal_files(parsed)
 
 
 def _normalize_path(path: str) -> str:
@@ -159,8 +194,21 @@ _MANIFEST_STRONG_MARKERS = (
     "did not find expected key",
     "mapping values are not allowed",
     "error converting yaml to json",
+    "incompatible types for comparison",
+    "error calling gt",
+    "error calling lt",
+    "wrong type for value",
+    "cannot compare",
+    "nil pointer evaluating",
 )
 _MANIFEST_WEAK_MARKERS = ("yaml parse", "yaml: unmarshal", "failed to parse")
+_HELM_VALUES_PATH_MARKERS = (
+    "helm/values-sbx.yaml",
+    "helm/values-dev.yaml",
+    "values-sbx.yaml",
+    "values-dev.yaml",
+    "templates/pdb.yaml",
+)
 
 _MAVEN_STRONG_MARKERS = (
     "could not resolve dependencies",
@@ -170,11 +218,34 @@ _MAVEN_STRONG_MARKERS = (
 _MAVEN_WEAK_MARKERS = ("build failure", "maven-dependency-plugin", "dependencyresolutionexception")
 
 
+_HELM_RUNTIME_MARKERS = (
+    "upgrade failed",
+    "context deadline exceeded",
+    "pending termination",
+    "timed out waiting",
+    "not ready. status: inprogress",
+    "resource deployment/",
+)
+
+
+def _is_helm_deploy_timeout(log_text: str) -> bool:
+    lowered = (log_text or "").lower()
+    if "helm" not in lowered and "upgrade failed" not in lowered:
+        return False
+    return any(marker in lowered for marker in _HELM_RUNTIME_MARKERS)
+
+
 def _is_helm_manifest_issue(log_text: str) -> bool:
     lowered = (log_text or "").lower()
     if any(m in lowered for m in _MANIFEST_STRONG_MARKERS):
         return True
-    return "yaml" in lowered and any(m in lowered for m in _MANIFEST_WEAK_MARKERS)
+    if "yaml" in lowered and any(m in lowered for m in _MANIFEST_WEAK_MARKERS):
+        return True
+    if _is_helm_deploy_timeout(log_text):
+        return True
+    helm_path = any(marker in lowered for marker in _HELM_VALUES_PATH_MARKERS)
+    helm_tooling = "helm" in lowered or "pdb.yaml" in lowered
+    return helm_path and helm_tooling
 
 
 def _is_maven_pom_issue(log_text: str) -> bool:
@@ -316,7 +387,8 @@ def _call_llm(messages: list) -> dict[str, Any]:
     if parsed is None:
         raise ValueError("No JSON object found in LLM output")
 
-    if "files" not in parsed and "root_cause" not in parsed:
+    parsed = _coerce_proposal_files(parsed)
+    if not parsed.get("files") and "root_cause" not in parsed:
         logger.warning("[CI_FIXER] Parsed JSON missing expected keys — retrying")
         return _retry_llm_for_json(llm, raw, messages)
 
@@ -336,9 +408,21 @@ def _build_feedback(
         f"--- Attempt {i + 1} ---\n{chr(10).join(v.get('errors', []))}\n{v.get('output', '')}"
         for i, v in enumerate(validation_history)
     )
+    combined = " ".join(
+        str(item)
+        for v in validation_history
+        for item in (v.get("errors") or []) + [v.get("output", "")]
+    ).lower()
+    hint = ""
+    if "original_snippet not found" in combined or "not safely patchable" in combined:
+        hint = (
+            "\nHINT: original_snippet did not match the real file on the branch. "
+            "Do NOT send a 1-line diff. Return the COMPLETE corrected file in "
+            "files[].content and OMIT original_snippet and fixed_snippet.\n"
+        )
     return (
         f"\n\nPREVIOUS ATTEMPTS FAILED ({fix_attempt} of {state.get('max_fix_attempts', 3)} used):\n"
-        + anchor + attempts
+        + anchor + attempts + hint
         + "\n\nFocus on the original root cause. Do NOT repeat the same change.\n"
     )
 
@@ -362,6 +446,11 @@ def _output_schema(issue_type: str, real_paths: list[str]) -> tuple[str, str]:
             "Output the COMPLETE corrected Helm values file in the 'content' field. "
             "Base it on the exact FILE content shown above — change only what's needed to fix "
             "the reported error, keep everything else byte-for-byte identical. "
+            "OMIT original_snippet and fixed_snippet — this is a full-file replacement. "
+            "replicaCount MUST be an unquoted integer (replicaCount: 1), never a quoted "
+            "string — Helm `gt .Values.replicaCount 1.0` cannot compare string and float64. "
+            "If CI failed on values-sbx.yaml, patch THAT file; do not invent a values-dev.yaml "
+            "change unless the PR actually broke values-dev.yaml. "
             f"Allowed paths: {', '.join(_MANIFEST_VALUES_PATHS)}\n"
         )
     elif issue_type == ISSUE_TYPE_MAVEN_POM:
@@ -390,6 +479,7 @@ def _filter_files(
     real_paths: list[str],
     issue_type: str,
 ) -> dict[str, Any]:
+    proposal = _coerce_proposal_files(proposal)
     extra_allowed = set(_KNOWN_PATHS_BY_ISSUE_TYPE.get(issue_type, ()))
     allowed = {_normalize_path(p) for p in (set(real_paths) | extra_allowed)}
     files = proposal.get("files")
@@ -426,6 +516,162 @@ def _filter_files(
     return proposal
 
 
+def _materialize_proposal_files(
+    proposal: dict[str, Any],
+    execution_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Turn snippet Helm proposals into full-file ``content`` before validation.
+
+    The sandbox validator and PR nodes both treat empty original_snippet as
+    full-file replacement. Materializing here is what used to work for
+    scenario_02 (complete values-sbx.yaml) and avoids 1-line diffs that cannot
+    be found in the real branch file.
+    """
+    proposal = _coerce_proposal_files(proposal)
+    files = proposal.get("files")
+    if not isinstance(files, list):
+        return proposal
+
+    materialized: list[dict[str, Any]] = []
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path", ""))
+        if not is_helm_values_file(path):
+            materialized.append(entry)
+            continue
+
+        base_text = _extract_file_content(execution_results, path)
+        original_snippet = entry.get("original_snippet", "") or ""
+        replacement = entry.get("content") or entry.get("fixed_snippet") or ""
+        if not replacement:
+            materialized.append(entry)
+            continue
+
+        text, patchable, reason = resolve_proposed_text(base_text, original_snippet, replacement)
+        if patchable and text:
+            logger.info(
+                "[CI_FIXER] Materialized %s as full-file content (reason=%s, lines=%d)",
+                path, reason, text.count("\n") + 1,
+            )
+            materialized.append({
+                **entry,
+                "content": text,
+                "original_snippet": "",
+                "fixed_snippet": "",
+            })
+        else:
+            logger.warning(
+                "[CI_FIXER] Could not materialize %s (reason=%s) — leaving proposal as-is",
+                path, reason,
+            )
+            materialized.append(entry)
+
+    proposal["files"] = materialized
+    return proposal
+
+
+def _service_under_change(context: dict[str, Any]) -> str:
+    """Service the failing PR belongs to, used to scope shared-namespace cluster evidence."""
+    repo = str(context.get("repo_full_name") or "")
+    return repo.rsplit("/", 1)[-1].strip().lower()
+
+
+def _object_name(item: Any) -> str:
+    if isinstance(item, dict):
+        for key in ("name", "pod", "pod_name"):
+            value = item.get(key)
+            if value:
+                return str(value)
+        involved = item.get("involvedObject")
+        if isinstance(involved, dict) and involved.get("name"):
+            return str(involved["name"])
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict) and metadata.get("name"):
+            return str(metadata["name"])
+    return ""
+
+
+def _belongs_to_service(item: Any, service: str) -> bool:
+    name = _object_name(item).lower()
+    if not name:
+        return True
+    return name == service or name.startswith(f"{service}-")
+
+
+def _scope_to_service(payload: Any, service: str) -> Any:
+    """Drop other services' pods/events from a shared namespace so they cannot be diagnosed."""
+    if not service or not isinstance(payload, dict):
+        return payload
+    scoped = dict(payload)
+    for key in ("pods", "events", "items"):
+        values = scoped.get(key)
+        if not isinstance(values, list):
+            continue
+        kept = [item for item in values if _belongs_to_service(item, service)]
+        if len(kept) != len(values):
+            scoped[f"{key}_omitted_other_services"] = len(values) - len(kept)
+        scoped[key] = kept
+    return scoped
+
+
+def _cluster_diagnostic_block(
+    execution_results: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> str:
+    """Keep OOM/CrashLoop facts out of the truncated CI-log dump."""
+    chunks: list[str] = []
+    service = _service_under_change(context)
+    oom = context.get("oom_evidence") or []
+    if oom:
+        chunks.append(
+            "CLUSTER OOM EVIDENCE (captured when CI failed; Helm logs usually omit this):\n"
+            + json.dumps(oom, indent=2, default=str)
+        )
+    snapshot = context.get("cluster_snapshot") or {}
+    if snapshot.get("pods") or snapshot.get("events"):
+        compact = {
+            "namespace": snapshot.get("namespace"),
+            "pods": [
+                pod for pod in (snapshot.get("pods") or [])
+                if _belongs_to_service(pod, service)
+            ],
+            "oom_events": [
+                evt for evt in (snapshot.get("events") or [])
+                if "oom" in str(evt).lower() or evt.get("reason") in {"OOMKilled", "OOMKilling"}
+            ],
+        }
+        chunks.append("CLUSTER SNAPSHOT AT CI FAILURE:\n" + json.dumps(compact, indent=2, default=str))
+
+    for result in execution_results:
+        if result.get("tool") != "kubernetes":
+            continue
+        payload = result.get("result") or {}
+        action = result.get("action")
+        if action in {"get_pods", "get_events", "get_pod", "describe_pod", "get_pod_logs"}:
+            scoped = _scope_to_service(payload, service)
+            chunks.append(
+                f"KUBERNETES {action}:\n" + json.dumps(scoped, indent=2, default=str)[:4000]
+            )
+    if not chunks:
+        return ""
+    scope_note = (
+        f"All cluster data below is scoped to the service changed by this PR (`{service}`); "
+        "unrelated workloads in the shared namespace were removed. Do not diagnose another service.\n"
+        if service
+        else ""
+    )
+    return (
+        "Helm `UPGRADE FAILED` / `context deadline exceeded` is a timeout waiting for pods. "
+        "Diagnose from the cluster data below (OOMKilled, exit 137, CrashLoopBackOff, probes). "
+        "Do not invent a Spring Boot memory recipe unless the workload is actually Java.\n"
+        + scope_note
+        + "\n"
+        + "\n\n".join(chunks)
+        + "\n\n"
+    )
+
+
 def ci_fixer_node(state: AgentState) -> AgentState:
     """Analyze a CI failure and produce an LLM-driven fix proposal."""
     context: dict[str, Any] = state.get("context", {})
@@ -435,7 +681,10 @@ def ci_fixer_node(state: AgentState) -> AgentState:
 
     execution_results: list[dict[str, Any]] = state.get("execution_results", [])
     log_text = _collect_log_text(execution_results)
-    issue_type = _classify_issue(log_text)
+    if context.get("oom_evidence") and not _is_maven_pom_issue(log_text):
+        issue_type = ISSUE_TYPE_HELM_MANIFEST
+    else:
+        issue_type = _classify_issue(log_text)
 
     execution_results, real_paths = _prepare_context(execution_results, repo, branch, issue_type)
 
@@ -451,6 +700,8 @@ def ci_fixer_node(state: AgentState) -> AgentState:
     if len(raw_block) > _RAW_BLOCK_MAX_CHARS:
         raw_block = raw_block[:_RAW_BLOCK_MAX_CHARS] + "\n[...truncated...]"
 
+    cluster_block = _cluster_diagnostic_block(execution_results, context)
+
     schema, rules = _output_schema(issue_type, real_paths)
     known_paths = _KNOWN_PATHS_BY_ISSUE_TYPE.get(issue_type, ())
     file_context = _known_file_context(execution_results, known_paths) if known_paths else ""
@@ -462,6 +713,7 @@ def ci_fixer_node(state: AgentState) -> AgentState:
 
     user_prompt = (
         f"Repo: {repo} | Branch: {branch} | Run: {run_url}\n\n"
+        f"{cluster_block}"
         f"Logs/data:\n{raw_block}\n"
         f"{file_context}\n"
         f"{feedback}\n"
@@ -484,6 +736,7 @@ def ci_fixer_node(state: AgentState) -> AgentState:
     )
 
     proposal = _filter_files(proposal, real_paths, issue_type)
+    proposal = _materialize_proposal_files(proposal, execution_results)
 
     logger.debug(
         "[CI_FIXER] Filtered proposal:\n%s",

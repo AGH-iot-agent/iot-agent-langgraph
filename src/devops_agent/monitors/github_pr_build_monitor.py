@@ -3,10 +3,46 @@ from __future__ import annotations
 import logging
 from devops_agent.monitors.base import BaseMonitor
 from devops_agent.event import AgentEvent
+from devops_agent.k8s_signals import snapshot_deploy_namespace
 from devops_agent.mcp_adapter import MCPAdapter
 
 logger = logging.getLogger(__name__)
 SKIP_BRANCHES = {"main", "master", "develop", "release"}
+
+
+def resolve_linked_pull_requests(adapter: MCPAdapter, repo: str, run: dict) -> list[dict]:
+    """GitHub often leaves workflow_run.pull_requests empty; resolve by head branch."""
+    linked = list(run.get("pull_requests") or [])
+    if linked:
+        return linked
+    branch = str(run.get("head_branch") or "")
+    if not branch or branch in SKIP_BRANCHES:
+        return []
+    try:
+        prs_resp = adapter.run(
+            "github",
+            "list_pull_requests",
+            {"repo": repo, "state": "open"},
+            dry_run=False,
+        )
+    except Exception:
+        logger.exception("[PRBuildMonitor] list_pull_requests failed for %s", repo)
+        return []
+    if prs_resp.get("status") not in ("ok", None):
+        return []
+    matched: list[dict] = []
+    for pr in prs_resp.get("pull_requests") or []:
+        head_ref = str((pr.get("head") or {}).get("ref") or pr.get("head_ref") or "")
+        if head_ref == branch:
+            matched.append(pr)
+    if matched:
+        logger.info(
+            "[PRBuildMonitor] Resolved PR for run#%s branch=%s via list_pull_requests "
+            "(API pull_requests empty)",
+            run.get("id"),
+            branch,
+        )
+    return matched
 
 
 class GitHubPRBuildMonitor(BaseMonitor):
@@ -16,11 +52,12 @@ class GitHubPRBuildMonitor(BaseMonitor):
         directly on the PR thread.
 
         Difference from GitHubCIFailureMonitor:
-        - Looks only at runs that have ``pull_requests`` populated (GitHub API
-        sets this field when a workflow was triggered by a pull_request event).
-        - Validates on ``iotag-dev`` (not sbx) — faster feedback for in-review code.
+        - Prefers workflow runs linked to an open PR (``pull_requests`` on the run,
+          or resolved by head branch when GitHub leaves that field empty).
+        - Validates on ``iotag-sbx`` (same sandbox as github_ci_failure / Helm values-sbx).
         - Uses ``pr_fix_commenter_node`` instead of ``pr_creator_node`` — comments
-        on the existing PR rather than opening a new one.
+        on the existing PR rather than opening a new one. The commenter still opens
+        a fix PR targeting the failing branch after sandbox validation passes.
     """
 
     def __init__(self, adapter: MCPAdapter, org: str) -> None:
@@ -71,7 +108,9 @@ class GitHubPRBuildMonitor(BaseMonitor):
                 if run.get("status") != "completed" or run.get("conclusion") != "failure":
                     continue
 
-                linked_prs: list[dict] = run.get("pull_requests") or []
+                linked_prs: list[dict] = resolve_linked_pull_requests(
+                    self._adapter, repo_full_name, run
+                )
                 if not linked_prs:
                     continue
 
@@ -113,6 +152,15 @@ class GitHubPRBuildMonitor(BaseMonitor):
                     continue
 
                 alerted_in_repo.add(run_id)
+                service = repo_full_name.rsplit("/", 1)[-1]
+                cluster = snapshot_deploy_namespace(
+                    self._adapter, "iotag-sbx", service=service,
+                )
+                if cluster.get("oom_evidence"):
+                    logger.info(
+                        "[PRBuildMonitor] Helm/CI failure has cluster OOM evidence for %s: %s",
+                        service, cluster["oom_evidence"],
+                    )
                 events.append(AgentEvent(
                     kind="github_pr_build_failure",
                     title=f"{repo_full_name} PR#{pr_number}: build failed on {branch} (run #{run_id})",
@@ -123,7 +171,9 @@ class GitHubPRBuildMonitor(BaseMonitor):
                         "branch": branch,
                         "workflow_name": run.get("name", ""),
                         "run_url": run.get("html_url", ""),
-                        "namespace": "iotag-dev",
+                        "namespace": "iotag-sbx",
+                        "cluster_snapshot": cluster,
+                        "oom_evidence": cluster.get("oom_evidence") or [],
                     },
                 ))
                 logger.info(

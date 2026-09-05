@@ -7,6 +7,7 @@ from typing import Any
 
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
+from devops_agent.validators.common import apply_text_patch, apply_unique_yaml_key_patch
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,13 @@ def _patch_file_content(
         logger.warning("[PR_CREATOR] No original_snippet for %s — skipping patch to protect file", path)
         return None
 
-    if original_snippet in current_content:
-        return current_content.replace(original_snippet, fixed_snippet, 1)
+    patched, found = apply_text_patch(current_content, original_snippet, fixed_snippet)
+    if found:
+        return patched
 
-    orig_lines = [l.rstrip() for l in original_snippet.splitlines()]
-    curr_lines = current_content.splitlines()
-    for i in range(len(curr_lines) - len(orig_lines) + 1):
-        window = [l.rstrip() for l in curr_lines[i : i + len(orig_lines)]]
-        if window == orig_lines:
-            patched = curr_lines[:i] + fixed_snippet.splitlines() + curr_lines[i + len(orig_lines):]
-            return "\n".join(patched) + ("\n" if current_content.endswith("\n") else "")
+    patched, found = apply_unique_yaml_key_patch(current_content, original_snippet, fixed_snippet)
+    if found:
+        return patched
 
     logger.warning(
         "[PR_CREATOR] original_snippet not found in %s — cannot patch safely, skipping", path

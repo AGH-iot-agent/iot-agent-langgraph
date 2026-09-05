@@ -25,6 +25,7 @@ The sandbox validator pre-fills `name` and `image.repository` before rendering.
 |---|---|---|---|
 | `global.namespace` | `iotag-dev` | `iotag-sbx` | `UPGRADE FAILED: resource already exists` |
 | `replicaCount` | integer e.g. `1` | integer | `cannot unmarshal string into Go value of type int32` |
+| `resources.limits.memory` | enough for the workload | same | Helm: `not ready` / `context deadline exceeded` (OOMKilled is **not** in CI logs) |
 | `livenessProbe.*` | indented under `livenessProbe:` | same | `cannot unmarshal bool` / YAML parse error |
 | `readinessProbe.*` | indented under `readinessProbe:` | same | same |
 

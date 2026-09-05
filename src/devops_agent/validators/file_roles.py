@@ -25,3 +25,13 @@ def classify_file_role(path: str) -> str:
     if is_yaml_file(path):
         return "kubernetes_manifest"
     return "non_yaml"
+
+
+def namespace_for_helm_values_path(path: str, default: str = "iotag-sbx") -> str:
+    """Map a Helm values filename to the environment it must be validated in."""
+    name = Path(path).name.lower()
+    if "sbx" in name:
+        return "iotag-sbx"
+    if "dev" in name:
+        return "iotag-dev"
+    return default or "iotag-sbx"

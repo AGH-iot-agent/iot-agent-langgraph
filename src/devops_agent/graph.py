@@ -1,6 +1,7 @@
 # devops_agent/graph.py
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -26,6 +27,12 @@ from devops_agent.graph_tools import ALL_TOOLS
 
 import logging
 logger = logging.getLogger("devops_agent.graph")
+
+
+def get_agent_mode() -> str:
+    """single_agent | multi_agent -- eksperymentalny prze\u0142\u0105cznik topologii grafu (RQ1-3)."""
+    mode = os.environ.get("AGENT_MODE", "multi_agent").strip().lower()
+    return mode if mode in ("single_agent", "multi_agent") else "multi_agent"
 
 
 def record_graph_run_metrics(state: dict[str, Any], *, started_at: float | None = None, trace_id: str | None = None, event_kind: str | None = None, repo: str | None = None, title: str | None = None) -> None:
@@ -62,11 +69,13 @@ def record_graph_run_metrics(state: dict[str, Any], *, started_at: float | None 
         "total_tokens": input_tokens + output_tokens,
         "validation_passed": bool(validation.get("passed", False)),
         "pr_created": bool(state.get("pr_url")),
+        "agent_mode": str(state.get("agent_mode") or get_agent_mode()),
     })
 
 
-def build_graph():
-    logger.info("Creating LangGraph model and custom nodes")
+def build_graph(agent_mode: str | None = None):
+    mode = (agent_mode or get_agent_mode())
+    logger.info("Creating LangGraph model and custom nodes (agent_mode=%s)", mode)
     graph = StateGraph(AgentState)
 
     def log_node(name, fn):
@@ -86,21 +95,30 @@ def build_graph():
         updated = finalizer_node(state)
         if isinstance(updated, dict):
             updated.setdefault("started_at", time.time())
+            updated.setdefault("agent_mode", mode)
             record_graph_run_metrics(updated)
         return updated
 
+    def _security_input_with_mode(state):
+        tagged = {**state, "agent_mode": mode} if isinstance(state, dict) else state
+        result = security_input_node(tagged)
+        if isinstance(result, dict):
+            result.setdefault("agent_mode", mode)
+        return result
+
     # Security gates (entry + exit)
-    graph.add_node("security_input",    log_node("security_input",    security_input_node))
+    graph.add_node("security_input",    log_node("security_input",    _security_input_with_mode))
     graph.add_node("security_output",   log_node("security_output",   security_output_node))
     graph.add_node("planner",           log_node("planner", planner_node))
-    graph.add_node("critic",            log_node("critic", critic_node))
     graph.add_node("executor",          log_node("executor", executor_node))
     graph.add_node("finalizer",         log_node("finalizer", _finalizer_with_metrics))
     graph.add_node("ci_fixer",          log_node("ci_fixer", ci_fixer_node))
-    graph.add_node("sandbox_validator", log_node("sandbox_validator", sandbox_validator_node))
     graph.add_node("pr_creator",        log_node("pr_creator", pr_creator_node))
     graph.add_node("pr_fix_commenter",  log_node("pr_fix_commenter", pr_fix_commenter_node))
     graph.add_node("tools",             ToolNode(ALL_TOOLS))
+    if mode == "multi_agent":
+        graph.add_node("critic",            log_node("critic", critic_node))
+        graph.add_node("sandbox_validator", log_node("sandbox_validator", sandbox_validator_node))
 
     graph.set_entry_point("security_input")
 
@@ -112,8 +130,6 @@ def build_graph():
             "finalizer": "finalizer",
         },
     )
-
-    graph.add_edge("planner", "critic")
 
     def log_route_after_critic(state):
         result = route_after_critic(state)
@@ -144,15 +160,30 @@ def build_graph():
         )
         return result
 
-    graph.add_conditional_edges(
-        "critic",
-        log_route_after_critic,
-        {
-            "planner":   "planner",
-            "executor":  "executor",
-            "finalizer": "finalizer",
-        },
-    )
+    def log_route_after_ci_fixer_single_agent(state):
+        result = _route_after_ci_fixer_single_agent(state)
+        logger.debug(
+            "[LangGraph] route after ci_fixer (single_agent)=%s trace_id=%s",
+            result,
+            state.get("trace_id", "no-trace"),
+        )
+        return result
+
+    if mode == "single_agent":
+        # Uproszczony graf: bez critic (polityka ADR-003) i bez sandbox_validator
+        # (brak dry-run gate i p\u0119tli samonaprawy) - eksperymentalny baseline (RQ1-3).
+        graph.add_edge("planner", "executor")
+    else:
+        graph.add_edge("planner", "critic")
+        graph.add_conditional_edges(
+            "critic",
+            log_route_after_critic,
+            {
+                "planner":   "planner",
+                "executor":  "executor",
+                "finalizer": "finalizer",
+            },
+        )
 
     graph.add_conditional_edges(
         "executor",
@@ -166,17 +197,28 @@ def build_graph():
 
     graph.add_edge("tools",     "executor")
 
-    graph.add_edge("ci_fixer", "sandbox_validator")
-    graph.add_conditional_edges(
-        "sandbox_validator",
-        log_route_after_validation,
-        {
-            "ci_fixer":         "ci_fixer",
-            "pr_creator":       "pr_creator",
-            "pr_fix_commenter": "pr_fix_commenter",
-            "finalizer":        "finalizer",
-        },
-    )
+    if mode == "single_agent":
+        graph.add_conditional_edges(
+            "ci_fixer",
+            log_route_after_ci_fixer_single_agent,
+            {
+                "pr_creator":       "pr_creator",
+                "pr_fix_commenter": "pr_fix_commenter",
+                "finalizer":        "finalizer",
+            },
+        )
+    else:
+        graph.add_edge("ci_fixer", "sandbox_validator")
+        graph.add_conditional_edges(
+            "sandbox_validator",
+            log_route_after_validation,
+            {
+                "ci_fixer":         "ci_fixer",
+                "pr_creator":       "pr_creator",
+                "pr_fix_commenter": "pr_fix_commenter",
+                "finalizer":        "finalizer",
+            },
+        )
     graph.add_edge("pr_creator",       "finalizer")
     graph.add_edge("pr_fix_commenter", "finalizer")
     graph.add_edge("finalizer",        "security_output")
@@ -200,3 +242,20 @@ def _route_executor(state: AgentState) -> str:
     ):
         return "ci_fixer"
     return "finalizer"
+
+
+def _route_after_ci_fixer_single_agent(state: AgentState) -> str:
+    """Route after ci_fixer when running without sandbox_validator (single_agent mode).
+
+    Mirrors route_after_validation's non-validation branches: no dry-run gate, no
+    self-heal retry loop - the fix is used as-is, exactly like a lone agent would.
+    """
+    event_kind = state.get("event_kind", "")
+    if event_kind == "github_pr_build_failure":
+        return "pr_fix_commenter"
+
+    proposal = state.get("ci_fix_proposal") or {}
+    if not proposal.get("files"):
+        return "finalizer"
+
+    return "pr_creator"

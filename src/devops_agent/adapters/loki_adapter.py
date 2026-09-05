@@ -49,6 +49,12 @@ class LokiAdapter:
             last_minutes – look-back window in minutes (default 30)
             limit        – max log lines returned (default 200)
         """
+        if not self.base_url:
+            return {
+                "status": "error",
+                "message": "LOKI_URL env variable not set.",
+            }
+
         logql = self._build_logql(kwargs)
         last_minutes = int(kwargs.get("last_minutes", 30))
         limit = int(kwargs.get("limit", 200))

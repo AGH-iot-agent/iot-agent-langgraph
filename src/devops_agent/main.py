@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 import prometheus_client
 
-from devops_agent.graph import build_graph
+from devops_agent.graph import build_graph, get_agent_mode
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog, WatchdogConfig
 from devops_agent.monitors import GitHubIssueMonitor, K3sHealthMonitor, GitHubPRMonitor, GitHubCIFailureMonitor, GitHubPRBuildMonitor, PrometheusMetricsMonitor, LokiErrorMonitor, ResourceQuotaMonitor, DiskPressureMonitor
@@ -285,6 +285,7 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok" if runtime_preflight["ok"] else "degraded",
         "runtime_preflight": runtime_preflight,
+        "agent_mode": get_agent_mode(),
     }
 
 @app.post("/run")

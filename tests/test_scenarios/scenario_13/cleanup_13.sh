@@ -4,8 +4,8 @@
 set -euo pipefail
 
 if [ ! -f .scenario_13_state ]; then
-  echo "[cleanup_13] No state file found — manual cleanup may be needed."
-  exit 1
+  echo "[cleanup_13] No state file found — nothing to restore."
+  exit 0
 fi
 
 export $(grep -v '^#' .scenario_13_state | xargs)

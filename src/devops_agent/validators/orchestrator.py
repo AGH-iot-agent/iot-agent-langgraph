@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_agent.validators.file_roles import classify_file_role
+from devops_agent.validators.file_roles import classify_file_role, namespace_for_helm_values_path
 from devops_agent.validators.helm_rules import validate_helm_values_file
 from devops_agent.validators.manifest_rules import validate_manifest_content
 
@@ -57,6 +57,8 @@ def _validate_file_entry(
         return [f"{path}: empty content - skipping"], [], detail
 
     if role == "helm_values":
+        file_namespace = namespace_for_helm_values_path(path, namespace)
+        detail["namespace"] = file_namespace
         yaml_errors = validate_yaml_content(content, path)
 
         if yaml_errors:
@@ -68,13 +70,13 @@ def _validate_file_entry(
                 "errors": yaml_errors,
             })
             return yaml_errors, [], detail
-        
+
         errors, outputs, patch_meta = validate_helm_values_file(
             adapter,
             path=path,
             repo=repo,
             branch=branch,
-            namespace=namespace,
+            namespace=file_namespace,
             service_name=service_name,
             release_name=release_name,
             chart_type=chart_type,
@@ -82,6 +84,7 @@ def _validate_file_entry(
             content=content,
         )
         detail.update(patch_meta)
+        detail["namespace"] = file_namespace
         detail["rules"] = ["helm_deployability"]
     elif role == "kubernetes_manifest":
         errors, outputs = validate_manifest_content(adapter, content, path, namespace)
@@ -100,13 +103,31 @@ def _validate_file_entry(
     return errors, outputs, detail
 
 
+def _proposal_file_entries(proposal: dict[str, Any]) -> list[dict[str, Any]]:
+    files = proposal.get("files")
+    if isinstance(files, dict):
+        return [files]
+    if isinstance(files, list) and files:
+        return files
+    path = proposal.get("path")
+    if isinstance(path, str) and path.strip():
+        return [
+            {
+                "path": path,
+                "content": proposal.get("content") or proposal.get("fixed_snippet") or "",
+                "original_snippet": proposal.get("original_snippet") or "",
+            }
+        ]
+    return files if isinstance(files, list) else []
+
+
 def validate_fix_proposal(
     adapter,
     *,
     proposal: dict[str, Any],
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    files: list[dict[str, Any]] = proposal.get("files", [])
+    files: list[dict[str, Any]] = _proposal_file_entries(proposal)
     namespace: str = context.get("namespace", "iotag-sbx")
     repo: str = context.get("repo_full_name", "")
     branch: str = context.get("branch", "main")
@@ -141,9 +162,21 @@ def validate_fix_proposal(
         outputs.extend(file_outputs)
         details.append(detail)
 
+    namespaces_used = {
+        str(detail.get("namespace"))
+        for detail in details
+        if detail.get("namespace")
+    }
+    result_namespace = namespace
+    if "iotag-sbx" in namespaces_used:
+        result_namespace = "iotag-sbx"
+    elif namespaces_used:
+        result_namespace = next(iter(namespaces_used))
+
     return {
         "passed": len(errors) == 0,
         "errors": errors,
         "output": "\n".join(outputs),
         "details": details,
+        "namespace": result_namespace,
     }

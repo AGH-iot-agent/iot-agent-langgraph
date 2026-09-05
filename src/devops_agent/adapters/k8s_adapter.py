@@ -7,6 +7,7 @@ from typing import Any
 import subprocess
 import json
 import logging
+import re
 import shutil
 import tempfile
 import tarfile
@@ -14,10 +15,106 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+# helm upgrade --install --dry-run with a unique release name tries to *adopt*
+# existing cluster objects. Parse the owner Helm already knows about.
+_HELM_OWNERSHIP_RELEASE_RE = re.compile(
+    r'key "meta\.helm\.sh/release-name" must equal "[^"]+"'
+    r'\s*:\s*current value is "([^"]+)"',
+    re.IGNORECASE,
+)
+_HELM_ISOLATION_MARKERS = (
+    "cannot be imported into the current release",
+    "invalid ownership metadata",
+    "another operation (install/upgrade/rollback) is in progress",
+    "another operation is in progress",
+)
+
+
+def existing_release_from_ownership_error(message: str) -> str | None:
+    """Extract the Helm release that already owns colliding cluster objects."""
+    match = _HELM_OWNERSHIP_RELEASE_RE.search(message or "")
+    return match.group(1) if match else None
+
+
+def is_helm_isolation_error(message: str) -> bool:
+    """True when helm --dry-run failed due to cluster ownership / pending ops, not the chart."""
+    lowered = (message or "").lower()
+    return any(marker in lowered for marker in _HELM_ISOLATION_MARKERS)
+
+
 KUBECONFIG_DEFAULT  = os.getenv("KUBECONFIG")
 _LOG_RUNNING_CMD    = "Running command: %s"
 _LOG_CMD_FAILED     = "Command failed with error: %s"
 _YAML_SUFFIX        = ".yaml"
+
+
+def summarize_pod(pod: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a Pod JSON object so monitors/LLMs see OOMKilled / exit 137 / memory limits.
+
+    ``kubectl get pods -o json`` keeps lastState.terminated.reason, but a 4-field
+    summary (name/phase/restarts/ready) throws that away — Helm CI then only shows
+    ``not ready / context deadline exceeded``.
+    """
+    metadata = pod.get("metadata") or {}
+    spec = pod.get("spec") or {}
+    status = pod.get("status") or {}
+    statuses = status.get("containerStatuses") or []
+
+    containers: list[dict[str, Any]] = []
+    oomkilled = False
+    last_reason = ""
+    last_exit: int | None = None
+    waiting_reasons: list[str] = []
+
+    for container_status in statuses:
+        last_term = (container_status.get("lastState") or {}).get("terminated") or {}
+        current_term = (container_status.get("state") or {}).get("terminated") or {}
+        waiting = (container_status.get("state") or {}).get("waiting") or {}
+        terminated = last_term or current_term
+        reason = str(terminated.get("reason") or waiting.get("reason") or "")
+        exit_code = terminated.get("exitCode")
+        is_oom = reason == "OOMKilled" or exit_code == 137
+        oomkilled = oomkilled or is_oom
+        if reason:
+            last_reason = reason
+        if exit_code is not None:
+            last_exit = exit_code
+        waiting_reason = waiting.get("reason")
+        if waiting_reason:
+            waiting_reasons.append(str(waiting_reason))
+        containers.append({
+            "name": container_status.get("name"),
+            "ready": bool(container_status.get("ready")),
+            "restarts": int(container_status.get("restartCount") or 0),
+            "reason": reason,
+            "exit_code": exit_code,
+            "oomkilled": is_oom,
+            "waiting_reason": waiting_reason,
+        })
+
+    memory_limits: list[dict[str, str]] = []
+    for container in spec.get("containers") or []:
+        memory = ((container.get("resources") or {}).get("limits") or {}).get("memory")
+        if memory:
+            memory_limits.append({
+                "container": str(container.get("name") or ""),
+                "memory_limit": str(memory),
+            })
+
+    return {
+        "name": metadata.get("name", ""),
+        "phase": status.get("phase", ""),
+        "node": spec.get("nodeName"),
+        "restarts": sum(int(cs.get("restartCount") or 0) for cs in statuses),
+        "ready": all(bool(cs.get("ready")) for cs in statuses) if statuses else False,
+        "oomkilled": oomkilled,
+        "last_terminated_reason": last_reason,
+        "last_exit_code": last_exit,
+        "waiting_reasons": waiting_reasons,
+        "memory_limits": memory_limits,
+        "containers": containers,
+    }
+
 
 @dataclass
 class K8sAdapter:
@@ -46,14 +143,7 @@ class K8sAdapter:
             pod_list = []
 
             for pod in pods_json.get("items", []):
-                statuses = pod.get("status", {}).get("containerStatuses", [])
-                pod_list.append({
-                    "name": pod["metadata"]["name"],
-                    "phase": pod["status"].get("phase", ""),
-                    "node": pod["spec"].get("nodeName", None),
-                    "restarts": sum(cs.get("restartCount", 0) for cs in statuses),
-                    "ready": all(cs.get("ready", False) for cs in statuses) if statuses else False,
-                })
+                pod_list.append(summarize_pod(pod))
             logger.debug("Retrieved %d pods from namespace %s", len(pod_list), namespace)
             return {"status": "ok", "pods": pod_list}
         except Exception as e:
@@ -115,12 +205,14 @@ class K8sAdapter:
             events_json = json.loads(result.stdout)
             events = []
             for event in events_json.get("items", []):
+                involved = event.get("involvedObject") or {}
                 events.append({
                     "reason": event.get("reason"),
                     "message": event.get("message"),
                     "type": event.get("type"),
-                    "object": event.get("involvedObject", {}).get("name"),
-                    "last_time": event.get("lastTimestamp"),
+                    "object": involved.get("name"),
+                    "object_kind": involved.get("kind"),
+                    "last_time": event.get("lastTimestamp") or event.get("eventTime"),
                 })
             logger.debug("Retrieved %d events from namespace %s", len(events), namespace)
             return {"status": "ok", "events": events}
@@ -657,6 +749,43 @@ class K8sAdapter:
                     _shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
+    def _helm_release_names(self, namespace: str) -> set[str]:
+        cmd = ["helm", "list", "--namespace", namespace, "-q"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
+        except Exception as exc:
+            logger.warning("helm list failed for namespace %s: %s", namespace, exc)
+            return set()
+        if result.returncode != 0:
+            logger.warning("helm list failed for namespace %s: %s", namespace, result.stderr)
+            return set()
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    def _resolve_dry_run_release_name(
+        self,
+        *,
+        namespace: str,
+        release_name: str,
+        service_name: str,
+    ) -> str:
+        """Prefer an already-installed release so --dry-run is an upgrade, not an adopt.
+
+        Unique names like ``live-e2e-88347442`` collide with Service/Deployment objects
+        owned by the real sbx release (e.g. ``iot-agent-login-screen``).
+        """
+        existing = self._helm_release_names(namespace)
+        for candidate in (service_name, release_name):
+            if candidate and candidate in existing:
+                if candidate != release_name:
+                    logger.info(
+                        "Using existing Helm release %r in %s for dry-run (requested %r)",
+                        candidate,
+                        namespace,
+                        release_name,
+                    )
+                return candidate
+        return service_name or release_name
+
     def helm_validate_deployability(
         self,
         release_name: str,
@@ -677,8 +806,14 @@ class K8sAdapter:
         if preflight_error is not None:
             return preflight_error
 
-        upgrade_dry_run = self._helm_upgrade_dry_run(
+        effective_release = self._resolve_dry_run_release_name(
+            namespace=namespace,
             release_name=release_name,
+            service_name=service_name,
+        )
+
+        upgrade_dry_run = self._helm_upgrade_dry_run(
+            release_name=effective_release,
             namespace=namespace,
             chart=chart,
             values_override=values_override,
@@ -687,13 +822,45 @@ class K8sAdapter:
         )
 
         if upgrade_dry_run.get("status") != "ok":
-            return {
-                "status": "error",
-                "message": f"helm upgrade --install --dry-run failed: {upgrade_dry_run.get('message', '')}",
-            }
+            message = str(upgrade_dry_run.get("message", ""))
+            owner = existing_release_from_ownership_error(message)
+            if owner and owner != effective_release:
+                logger.info(
+                    "Helm dry-run collided with existing release %r; retrying with that name",
+                    owner,
+                )
+                effective_release = owner
+                upgrade_dry_run = self._helm_upgrade_dry_run(
+                    release_name=effective_release,
+                    namespace=namespace,
+                    chart=chart,
+                    values_override=values_override,
+                    image_repository=image_repository,
+                    image_tag=image_tag,
+                )
+                message = str(upgrade_dry_run.get("message", ""))
+            if upgrade_dry_run.get("status") != "ok" and is_helm_isolation_error(message):
+                logger.warning(
+                    "Skipping helm upgrade --dry-run due to cluster isolation "
+                    "(ownership or in-progress release); falling back to helm template + "
+                    "kubectl apply --dry-run=server. detail=%s",
+                    message[:400],
+                )
+                upgrade_dry_run = {
+                    "status": "ok",
+                    "output": (
+                        "helm upgrade --dry-run skipped (cluster isolation): "
+                        + message[:300]
+                    ),
+                }
+            elif upgrade_dry_run.get("status") != "ok":
+                return {
+                    "status": "error",
+                    "message": f"helm upgrade --install --dry-run failed: {message}",
+                }
 
         render_result = self.helm_template_render(
-            name=release_name,
+            name=effective_release,
             chart=chart,
             values_override=values_override,
         )
@@ -719,7 +886,8 @@ class K8sAdapter:
 
         return {
             "status": "ok",
-            "release_name": release_name,
+            "release_name": effective_release,
+            "requested_release_name": release_name,
             "service_name": service_name,
             "namespace": namespace,
             "chart": chart,

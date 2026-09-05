@@ -11,43 +11,25 @@ from devops_agent.adapters.k8s_adapter import K8sAdapter
 from devops_agent.event import AgentEvent
 from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
-from devops_agent.nodes.ci_fixer import ci_fixer_node
-from devops_agent.nodes.sandbox_validator import sandbox_validator_node
 from devops_agent.watchdog import AgentWatchdog
-
-import os
-import time
-from typing import Any
-
-import pytest
-import yaml
-
-from devops_agent.adapters.k8s_adapter import K8sAdapter
-from devops_agent.nodes.ci_fixer import ci_fixer_node
-from devops_agent.nodes.sandbox_validator import sandbox_validator_node
-from tests.integration.test_ci_fix_integration import SMB_CHART_URI, _CIFixIntegrationAdapter, _assert_runtime_preconditions, _build_ci_failure_state, _require_openai_key, _uninstall_release_if_exists
+from tests.test_scenarios.github_tokens import non_agent_gh_adapter
+from tests.test_scenarios.helm_fixtures import scenario_02_broken_sbx
+from tests.integration.test_ci_fix_integration import (
+    _assert_runtime_preconditions,
+    _uninstall_release_if_exists,
+)
 
 
-SMB_CHART_URI    = os.environ.get("TEST_SMB_CHART_URI")
-TARGET_REPO      = os.environ.get("TEST_CI_FIX_TARGET_REPO")
-TARGET_NAMESPACE = os.environ.get("TEST_CI_FIX_TARGET_NAMESPACE")
-TARGET_BRANCH    = os.environ.get("TEST_CI_FIX_TARGET_BRANCH")
-KUBECONFIG       = os.environ.get("TEST_CI_FIX_KUBECONFIG")
-TARGET_REPO      = os.environ.get("TEST_CI_FIX_TARGET_REPO")
+SMB_CHART_URI = os.environ.get("TEST_SMB_CHART_URI")
+TARGET_REPO = os.environ.get("TEST_CI_FIX_TARGET_REPO")
 TARGET_NAMESPACE = os.environ.get("TEST_CI_FIX_TARGET_NAMESPACE", "iotag-sbx")
-BASE_BRANCH      = os.environ.get("TEST_CI_FIX_BASE_BRANCH", "main")
-SMB_CHART_URI    = os.environ.get("TEST_SMB_CHART_URI")
-KUBECONFIG       = os.environ.get("TEST_CI_FIX_KUBECONFIG")
+BASE_BRANCH = os.environ.get("TEST_CI_FIX_BASE_BRANCH", "main")
+KUBECONFIG = os.environ.get("TEST_CI_FIX_KUBECONFIG")
 
-_SBX_RELEASE_NAME  = "ci-fix-it-test"
+_SBX_RELEASE_NAME = "ci-fix-it-test"
 
-_PROBE_ERROR_KEYWORDS = ("mapping values are not allowed", "livenessprobe")
-
-CI_WAIT_TIMEOUT_S  = int(os.environ.get("TEST_CI_FIX_CI_WAIT_TIMEOUT_S", "1200"))
+CI_WAIT_TIMEOUT_S = int(os.environ.get("TEST_CI_FIX_CI_WAIT_TIMEOUT_S", "1200"))
 CI_POLL_INTERVAL_S = int(os.environ.get("TEST_CI_FIX_CI_POLL_INTERVAL_S", "20"))
-
-BROKEN_DEV_VALUES_PATH = "./tests/test_scenarios/scenario_02/values-dev.yaml"
-BROKEN_SBX_VALUES_PATH = "./tests/test_scenarios/scenario_02/values-sbx.yaml"
 
 @pytest.fixture(scope="session")
 def k8s_adapter() -> K8sAdapter:
@@ -65,35 +47,6 @@ def sbx_release(k8s_adapter: K8sAdapter) -> Any:
     finally:
         _uninstall_release_if_exists(k8s_adapter, _SBX_RELEASE_NAME)
 
-@pytest.fixture(scope="session")
-def k8s_adapter() -> K8sAdapter:
-    return K8sAdapter(kubeconfig=KUBECONFIG)
-
-@pytest.fixture(scope="session")
-def broken_helm_values() -> str:
-    """Fetch the intentionally broken Helm/values-sbx.yaml from GitHub.
-
-    The branch ``test/scenario_02_1778954913`` is the permanent test-scenario
-    branch that carries the unindented ``livenessProbe`` block.  Reading it
-    live from GitHub ensures the fixture is authoritative and not duplicated
-    in the local workspace.
-    """
-    from devops_agent.mcp_adapter import MCPAdapter
-
-    _BROKEN_BRANCH = "test/scenario_02_1778954913"
-    adapter = MCPAdapter()
-    result = adapter.run("github", "get_file_content", {
-        "repo": TARGET_REPO,
-        "path": "Helm/values-sbx.yaml",
-        "ref": _BROKEN_BRANCH,
-    })
-    if result.get("status") != "ok":
-        pytest.fail(
-            f"Failed to fetch Helm/values-sbx.yaml from GitHub "
-            f"({TARGET_REPO}@{_BROKEN_BRANCH}): {result}"
-        )
-    return result["content"]
-
 
 def _require_env() -> None:
     missing = [
@@ -108,12 +61,7 @@ def _require_env() -> None:
 
 @pytest.fixture(scope="module")
 def gh() -> GHAdapter:
-    return GHAdapter()
-
-
-@pytest.fixture(scope="module")
-def k8s_adapter() -> K8sAdapter:
-    return K8sAdapter(kubeconfig=KUBECONFIG)
+    return non_agent_gh_adapter()
 
 
 @pytest.fixture(scope="module")
@@ -121,7 +69,7 @@ def mcp_adapter() -> MCPAdapter:
     return MCPAdapter()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def live_scenario02_pr(gh: GHAdapter) -> Any:
     """Open a real, broken PR - CI is expected to start running as soon as
     this fixture yields, since opening a PR against BASE_BRANCH triggers
@@ -142,24 +90,23 @@ def live_scenario02_pr(gh: GHAdapter) -> Any:
     )
 
     head_sha: Optional[str] = None
-    _BROKEN_VALUES_DEV = open(BROKEN_DEV_VALUES_PATH, "r", encoding="utf-8").read()
-    _BROKEN_VALUES_SBX = open(BROKEN_SBX_VALUES_PATH, "r", encoding="utf-8").read()
-    
-    for path, content in (
-        ("Helm/values-sbx.yaml", _BROKEN_VALUES_SBX),
-        ("Helm/values-dev.yaml", _BROKEN_VALUES_DEV),
-    ):
-        commit_result = gh.commit_file(
-            repo=TARGET_REPO,
-            path=path,
-            content=content,
-            branch=branch,
-            message=f"Update Helm values for scenario 02 ({path})",
-        )
-        assert commit_result.get("status") == "ok", (
-            f"Failed to commit {path} on {branch}: {commit_result}"
-        )
-        head_sha = commit_result.get("sha") or head_sha
+    # values-dev.yaml stays as on main. Injecting a string replicaCount into
+    # both files made the agent patch values-dev (iotag-dev) with a snippet
+    # taken from values-sbx — original_snippet then never matched.
+    broken_sbx = scenario_02_broken_sbx()
+    assert 'replicaCount: "not-a-number"' in broken_sbx
+    assert "/invalid-path-for-liveness-probe" in broken_sbx
+    commit_result = gh.commit_file(
+        repo=TARGET_REPO,
+        path="Helm/values-sbx.yaml",
+        content=broken_sbx,
+        branch=branch,
+        message="test(scenario_02): inject replicaCount string + liveness path on real values-sbx",
+    )
+    assert commit_result.get("status") == "ok", (
+        f"Failed to commit Helm/values-sbx.yaml on {branch}: {commit_result}"
+    )
+    head_sha = commit_result.get("sha") or head_sha
 
     if not head_sha:
         head_sha_result = gh.get_branch_sha(TARGET_REPO, branch)
@@ -170,12 +117,13 @@ def live_scenario02_pr(gh: GHAdapter) -> Any:
 
     pr_result = gh.create_pull_request(
         repo=TARGET_REPO,
-        title="[true-e2e-test] scenario 02: broken livenessProbe indentation",
+        title="[true-e2e-test] scenario 02: replicaCount string + invalid liveness path",
         body=(
-            "Automated TRUE e2e test PR (test_scenario02_full_e2e.py). "
-            "This PR is expected to fail CI for real; the test waits for that "
-            "failure, diagnoses it, validates a fix, and comments the reasoning "
-            "back onto this PR. Safe to close/ignore if left open by a crashed run."
+            "Automated TRUE e2e test PR (test_scenario02_pr_fail_reasoning_validation_solution). "
+            "Only Helm/values-sbx.yaml is mutated (replicaCount string + liveness path) "
+            "from the real login-screen Helm file. The test waits for CI to finish, "
+            "then the agent must diagnose from those logs and post a patchable fix. "
+            "Safe to close/ignore if left open by a crashed run."
         ),
         branch=branch,
         base=BASE_BRANCH,
@@ -250,12 +198,17 @@ def test_scenario02_pr_fail_reasoning_validation_solution(
     mcp_adapter: MCPAdapter,
     gh: GHAdapter,
     monkeypatch: pytest.MonkeyPatch,
+    agent_mode: str,
 ) -> None:
     """PR -> FAIL -> REASONING -> VALIDATION -> SOLUTION, with every step
     backed by a real call against the live PR/CI/cluster - nothing faked."""
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.fail("OPENAI_API_KEY is required (ci_fixer calls the LLM).")
 
+    from tests.test_scenarios.run_metrics import metrics_snapshot, record_live_comment
+
+    started_at = time.time()
+    metrics_before = metrics_snapshot()
     branch = live_scenario02_pr["branch"]
     pr_number = live_scenario02_pr["pr_number"]
     head_sha = live_scenario02_pr["head_sha"]
@@ -272,7 +225,7 @@ def test_scenario02_pr_fail_reasoning_validation_solution(
     monkeypatch.setattr(_pr_fix_commenter_module, "_adapter", mcp_adapter)
     monkeypatch.setattr(helm_rules, "_HELM_CHART_SOURCE", SMB_CHART_URI)
 
-    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(), monitors=[])
+    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(agent_mode=agent_mode), monitors=[])
     event = AgentEvent(
         kind="github_pr_build_failure",
         title=f"{TARGET_REPO}#{pr_number}: CI failed for branch {branch}",
@@ -299,28 +252,61 @@ def test_scenario02_pr_fail_reasoning_validation_solution(
         f"Expected a '## gh_action_bot' comment on PR#{pr_number} after full agent loop "
         f"for github_pr_build_failure, got bodies: {[c.get('body', '')[:120] for c in comments]}"
     )
+    comment_body = matching[-1].get("body", "")
+    from tests.test_scenarios.requirement_asserts import (
+        assert_any_keyword,
+        assert_comment_structure,
+        assert_compound_faults,
+        assert_ground_truth_diagnosis,
+        assert_keywords_present,
+        assert_target_files,
+        assert_validation_namespace,
+    )
+
+    try:
+        assert_comment_structure(comment_body, require_validation=True)
+        assert_keywords_present(comment_body, ("liveness", "probe"))
+        assert_any_keyword(
+            comment_body,
+            ("replicaCount", "invalid-path", "not-a-number", "indent"),
+            label="scenario 02 injected helm fault",
+        )
+        assert_compound_faults(
+            comment_body,
+            (
+                ("liveness", "probe"),
+                ("replicaCount", "not-a-number"),
+            ),
+            label="scenario 02 compound faults",
+        )
+        assert_target_files(comment_body, ("Helm/values-sbx.yaml",), require_all=False)
+        assert_validation_namespace(comment_body, helm_values_path="Helm/values-sbx.yaml")
+        assert_ground_truth_diagnosis(comment_body, "02")
+        record_live_comment(
+            scenario_id="02",
+            agent_mode=agent_mode,
+            comment_body=comment_body,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=True,
+            validation_namespace="iotag-sbx",
+        )
+    except Exception as exc:
+        record_live_comment(
+            scenario_id="02",
+            agent_mode=agent_mode,
+            comment_body=comment_body,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=False,
+            error=str(exc),
+            validation_namespace="iotag-sbx",
+        )
+        raise
 
     newest_id = matching[-1].get("id")
     if newest_id:
         live_scenario02_pr["posted_comment_ids"].append(newest_id)
-
-def _fixed_proposal_state(
-    k8s_adapter: K8sAdapter,
-    broken_helm_values: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> dict[str, Any]:
-    """Run ci_fixer_node once and return the resulting state.
-
-    Shared by several tests below so each doesn't have to re-derive it;
-    kept as a plain helper (not a fixture) since a couple of tests need to
-    patch different modules around the same call.
-    """
-    from devops_agent.nodes import ci_fixer as _ci_fixer_module
-
-    stub_adapter = _CIFixIntegrationAdapter(k8s_adapter)
-    monkeypatch.setattr(_ci_fixer_module, "_adapter", stub_adapter)
-    state = _build_ci_failure_state(broken_helm_values)
-    return ci_fixer_node(state)
 
 # @pytest.mark.integration
 # def test_ci_fixer_root_cause_identifies_probe_indentation(

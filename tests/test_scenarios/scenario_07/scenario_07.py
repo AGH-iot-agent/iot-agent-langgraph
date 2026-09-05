@@ -14,8 +14,9 @@ from devops_agent.event import AgentEvent
 from devops_agent.graph import build_graph
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.watchdog import AgentWatchdog
+from tests.test_scenarios.github_tokens import non_agent_gh_adapter
 
-EXPECTED_SCENARIO07_REPO = "AGH-iot-agent/iot-agent-stream-worker"
+EXPECTED_SCENARIO07_REPO = "AGH-iot-agent/iot-agent-login-screen"
 TARGET_REPO = os.environ.get("TEST_SCENARIO07_TARGET_REPO", EXPECTED_SCENARIO07_REPO)
 BASE_BRANCH = os.environ.get("TEST_SCENARIO07_BASE_BRANCH", "main")
 TARGET_NAMESPACE = os.environ.get("TEST_SCENARIO07_TARGET_NAMESPACE", "iotag-sbx")
@@ -88,21 +89,106 @@ def _require_env() -> None:
         )
 
 
-def _build_pr_event(repo: str, pr_number: int, branch: str, body: str) -> AgentEvent:
+CI_WAIT_TIMEOUT_S = int(os.environ.get("TEST_SCENARIO07_CI_WAIT_TIMEOUT_S", "900"))
+CI_POLL_INTERVAL_S = int(os.environ.get("TEST_SCENARIO07_CI_POLL_INTERVAL_S", "15"))
+
+
+def _wait_for_ci_terminal(gh: GHAdapter, repo: str, branch: str, timeout_s: int, poll_s: int) -> dict[str, Any]:
+    """Block until a workflow run for ``branch`` completes (success or failure)."""
+    deadline = time.time() + timeout_s
+    last_seen: dict[int, str] = {}
+    while time.time() < deadline:
+        runs_resp = gh.get_workflow_runs(repo, per_page=30)
+        if runs_resp.get("status") == "ok":
+            for run in runs_resp.get("runs", []):
+                if str(run.get("head_branch") or "") != branch:
+                    continue
+                run_id = int(run.get("id") or 0)
+                status = str(run.get("status") or "")
+                conclusion = str(run.get("conclusion") or "")
+                last_seen[run_id] = f"{status}/{conclusion}"
+                if status == "completed":
+                    return run
+        time.sleep(poll_s)
+    pytest.fail(
+        f"Timed out after {timeout_s}s waiting for CI to finish on {repo}@{branch}. "
+        f"Observed: {last_seen or 'none'}. The agent must not comment before the pipeline ends."
+    )
+
+
+def _build_oom_event(
+    repo: str,
+    pr_number: int,
+    branch: str,
+    run: dict[str, Any],
+    oom: dict[str, Any],
+) -> AgentEvent:
+    conclusion = str(run.get("conclusion") or "")
+    kind = "github_pr_build_failure" if conclusion == "failure" else "github_pr"
+    event = oom.get("event") or {}
+    oom_evidence = [
+        {
+            "source": "pod",
+            "pod": (oom.get("pod") or {}).get("name") if isinstance(oom.get("pod"), dict) else oom.get("pod"),
+            "container": oom.get("container"),
+            "reason": oom.get("reason") or event.get("reason") or "OOMKilled",
+            "message": oom.get("message") or event.get("message"),
+            "exit_code": oom.get("exit_code"),
+            "event_reason": event.get("reason"),
+            "event_message": event.get("message"),
+        }
+    ]
     return AgentEvent(
-        kind="github_pr",
-        title=f"{repo}#{pr_number}: Test PR for scenario 07: OOMKilled due to insufficient memory limits in Helm values",
-        body=body,
+        kind=kind,
+        title=f"{repo}#{pr_number}: CI {conclusion or 'completed'} for branch {branch}",
+        body=(
+            "Live scenario_07: wait for pipeline end, then diagnose from cluster OOMKilled "
+            "evidence (not from Helm 32Mi/1Mi values alone)."
+        ),
         context={
             "repo_full_name": repo,
             "pr_number": pr_number,
             "branch": branch,
+            "run_id": run.get("id"),
+            "run_url": run.get("html_url", ""),
+            "namespace": TARGET_NAMESPACE,
+            "oom_evidence": oom_evidence,
+            "cluster_snapshot": {"namespace": TARGET_NAMESPACE, "oom_evidence": oom_evidence},
         },
     )
 
 
+
 def _is_target_pod(pod_name: str) -> bool:
     return pod_name == TARGET_DEPLOYMENT or pod_name.startswith(f"{TARGET_DEPLOYMENT}-")
+
+
+def _normalize_oom_text(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "")
+
+
+def _looks_like_oom(reason: Any, message: Any) -> bool:
+    reason_norm = _normalize_oom_text(reason)
+    message_norm = _normalize_oom_text(message)
+    combined = f"{reason_norm} {message_norm}"
+    return any(
+        token in combined
+        for token in (
+            "oomkilled",
+            "oomkilling",
+            "outofmemory",
+            "memory limit",
+            "memorylimit",
+            "killed process",
+        )
+    )
+
+
+def _find_oom_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in events:
+        if _looks_like_oom(event.get("reason"), event.get("message")):
+            return event
+    return None
 
 
 def _pod_has_oomkilled_status(k8s_adapter: K8sAdapter, namespace: str, pod_name: str) -> dict[str, Any] | None:
@@ -123,9 +209,7 @@ def _pod_has_oomkilled_status(k8s_adapter: K8sAdapter, namespace: str, pod_name:
                 state = container_status.get(state_key, {})
                 for phase_key in ("terminated", "waiting"):
                     phase = state.get(phase_key, {})
-                    reason = str(phase.get("reason") or "").lower()
-                    message = str(phase.get("message") or "").lower()
-                    if reason == "oomkilled" or "oomkilled" in message:
+                    if _looks_like_oom(phase.get("reason"), phase.get("message")):
                         return {
                             "pod": {
                                 "name": pod_name,
@@ -139,7 +223,23 @@ def _pod_has_oomkilled_status(k8s_adapter: K8sAdapter, namespace: str, pod_name:
                             "container": container_status.get("name"),
                             "reason": phase.get("reason"),
                             "message": phase.get("message"),
+                            "exit_code": phase.get("exitCode"),
                         }
+    return None
+
+
+def _last_exit_code(k8s_adapter: K8sAdapter, namespace: str, pod_name: str) -> int | None:
+    """Terminated exit code of the target container, so evidence carries 137/128 verbatim."""
+    pod_resp = k8s_adapter.get_pod(pod_name, namespace)
+    if pod_resp.get("status") != "ok":
+        return None
+    status = pod_resp.get("pod", {}).get("status", {})
+    for group_key in ("containerStatuses", "initContainerStatuses"):
+        for cs in status.get(group_key, []) or []:
+            for state_key in ("lastState", "state"):
+                terminated = (cs.get(state_key, {}) or {}).get("terminated", {}) or {}
+                if "exitCode" in terminated:
+                    return int(terminated["exitCode"])
     return None
 
 
@@ -180,6 +280,21 @@ def _pod_non_oom_diagnostics(k8s_adapter: K8sAdapter, namespace: str, pod_name: 
     return diagnostics
 
 
+def _build_pr_event(repo: str, pr_number: int, branch: str, body: str) -> AgentEvent:
+    """Deterministic unit-test helper (no CI wait). Live tests use `_build_oom_event`."""
+    return AgentEvent(
+        kind="github_pr",
+        title=f"{repo}#{pr_number}: Test PR for scenario 07: OOMKilled due to insufficient memory limits in Helm values",
+        body=body,
+        context={
+            "repo_full_name": repo,
+            "pr_number": pr_number,
+            "branch": branch,
+            "namespace": TARGET_NAMESPACE,
+        },
+    )
+
+
 def _wait_for_real_oomkilled(k8s_adapter: K8sAdapter, namespace: str, timeout_s: int, poll_interval_s: int) -> dict[str, Any]:
     """Wait until the live cluster reports a real OOMKilled pod in the target namespace.
 
@@ -212,19 +327,23 @@ def _wait_for_real_oomkilled(k8s_adapter: K8sAdapter, namespace: str, timeout_s:
                 if oom_status:
                     pod_events = k8s_adapter.get_pod_events(pod_name, namespace)
                     if pod_events.get("status") == "ok":
-                        for event in pod_events.get("events", []):
-                            reason = str(event.get("reason") or "").lower()
-                            if reason in {"oomkilling", "oomkilled"}:
-                                oom_status["event"] = event
-                                return oom_status
+                        matched_event = _find_oom_event(pod_events.get("events", []) or [])
+                        if matched_event:
+                            oom_status["event"] = matched_event
+                            return oom_status
                     return oom_status
                 if restarts > 0 or phase not in {"running", "succeeded"}:
                     events_resp = k8s_adapter.get_pod_events(pod_name, namespace)
                     if events_resp.get("status") == "ok":
-                        for event in events_resp.get("events", []):
-                            reason = str(event.get("reason") or "")
-                            if reason.lower() in {"oomkilling", "oomkilled"}:
-                                return {"pod": pod, "event": event}
+                        matched_event = _find_oom_event(events_resp.get("events", []) or [])
+                        if matched_event:
+                            return {
+                                "pod": pod,
+                                "event": matched_event,
+                                "reason": matched_event.get("reason"),
+                                "message": matched_event.get("message"),
+                                "exit_code": _last_exit_code(k8s_adapter, namespace, pod_name),
+                            }
                     last_seen["non_oom_diagnostics"] = _pod_non_oom_diagnostics(k8s_adapter, namespace, pod_name)
 
         time.sleep(poll_interval_s)
@@ -245,7 +364,7 @@ def _wait_for_real_oomkilled(k8s_adapter: K8sAdapter, namespace: str, timeout_s:
 
 @pytest.fixture(scope="module")
 def gh() -> GHAdapter:
-    return GHAdapter()
+    return non_agent_gh_adapter()
 
 
 @pytest.fixture(scope="module")
@@ -258,7 +377,7 @@ def mcp_adapter() -> MCPAdapter:
     return MCPAdapter()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def live_scenario07_pr(gh: GHAdapter) -> Any:
     _require_env()
 
@@ -298,7 +417,7 @@ def live_scenario07_pr(gh: GHAdapter) -> Any:
         title="[true-e2e-test] scenario 07: OOMKilled due to insufficient memory limits in Helm values",
         body=(
             "Automated TRUE e2e test PR for OOMKilled memory-limit regression. "
-            "This PR intentionally sets Helm/values-dev.yaml to memory: 32Mi, which "
+            "This PR intentionally sets Helm/values-dev.yaml to memory: 1Mi, which "
             "is too low for the target container. The agent should diagnose the OOMKilled "
             "root cause and propose a fix to increase memory limits in the Helm chart."
         ),
@@ -344,7 +463,7 @@ def live_scenario07_pr(gh: GHAdapter) -> Any:
 @pytest.mark.integration
 def test_scenario07_appends_memory_fix_recommendation_for_pr_comment() -> None:
     issue_body = (
-        "This PR sets resources.limits.memory to 32Mi in Helm/values-dev.yaml for a Spring Boot app; "
+        "This PR sets resources.limits.memory to 1Mi in Helm/values-dev.yaml for a frontend container; "
         "after deployment the container is OOMKilled with exit code 137."
     )
     adapter = _RecordingAdapter()
@@ -371,23 +490,26 @@ def test_scenario07_real_agent_comments_on_live_pr(
     mcp_adapter: MCPAdapter,
     gh: GHAdapter,
     k8s_adapter: K8sAdapter,
+    agent_mode: str,
 ) -> None:
     pr_number = live_scenario07_pr["pr_number"]
     branch = live_scenario07_pr["branch"]
+    from tests.test_scenarios.run_metrics import metrics_snapshot, record_live_comment
 
-    # IMPORTANT: mirror scenario_02. The test must wait for the environment to fail,
-    # then only dispatch the agent. If the cluster never reports OOMKilled, the test fails
-    # loudly instead of pretending the agent handled a problem it never saw.
-    _wait_for_real_oomkilled(k8s_adapter, TARGET_NAMESPACE, OOM_WAIT_TIMEOUT_S, OOM_POLL_INTERVAL_S)
+    started_at = time.time()
+    metrics_before = metrics_snapshot()
 
-    body = (
-        "Live scenario_07 test event. This PR deliberately lowers memory to 32Mi in "
-        "Helm/values-dev.yaml for a Spring Boot service, which triggers OOMKilled. "
-        "The agent should diagnose the memory-limit root cause and propose a fix."
+    # Wait for the pipeline to finish FIRST. Commenting from Helm 32Mi/1Mi
+    # before CI/cluster evidence is the premature-comment failure mode.
+    ci_run = _wait_for_ci_terminal(
+        gh, TARGET_REPO, branch, CI_WAIT_TIMEOUT_S, CI_POLL_INTERVAL_S
+    )
+    oom = _wait_for_real_oomkilled(
+        k8s_adapter, TARGET_NAMESPACE, OOM_WAIT_TIMEOUT_S, OOM_POLL_INTERVAL_S
     )
 
-    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(), monitors=[])
-    watchdog._dispatch_inner(_build_pr_event(TARGET_REPO, pr_number, branch, body))
+    watchdog = AgentWatchdog(adapter=mcp_adapter, graph=build_graph(agent_mode=agent_mode), monitors=[])
+    watchdog._dispatch_inner(_build_oom_event(TARGET_REPO, pr_number, branch, ci_run, oom))
     watchdog._executor.shutdown(wait=True)
 
     deadline = time.monotonic() + 90
@@ -410,7 +532,44 @@ def test_scenario07_real_agent_comments_on_live_pr(
         f"Last poll result: {last_comments_result}."
     )
 
-    combined = " ".join(c.get("body", "") for c in bot_comments).lower()
-    assert "oom" in combined or "memory" in combined
-    assert "32mi" in combined or "512mi" in combined or "resources.limits.memory" in combined
-    assert "helm" in combined or "values-dev.yaml" in combined
+    comment = bot_comments[-1].get("body", "")
+    from tests.test_scenarios.requirement_asserts import (
+        assert_any_keyword,
+        assert_comment_structure,
+        assert_ground_truth_diagnosis,
+        assert_keywords_present,
+        assert_target_files,
+    )
+
+    try:
+        assert_comment_structure(comment, require_validation=False)
+        assert_keywords_present(comment, ("memory", "oom"))
+        assert_any_keyword(comment, ("OOMKilled", "oomkilled", "137"))
+        assert_any_keyword(comment, ("1Mi", "32Mi", "limits", "values-dev"))
+        spring_boot_guess = "spring boot" in comment.lower() and "256mi" in comment.lower()
+        has_oom_evidence = any(token in comment.lower() for token in ("oomkilled", "137", "exit"))
+        assert not spring_boot_guess or has_oom_evidence, (
+            "Comment guessed a Spring Boot memory recipe without cluster OOM evidence. "
+            f"Body:\n{comment[:1200]}"
+        )
+        assert_target_files(comment, ("Helm/values-dev.yaml",), require_all=False)
+        assert_ground_truth_diagnosis(comment, "07")
+        record_live_comment(
+            scenario_id="07",
+            agent_mode=agent_mode,
+            comment_body=comment,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=True,
+        )
+    except Exception as exc:
+        record_live_comment(
+            scenario_id="07",
+            agent_mode=agent_mode,
+            comment_body=comment,
+            started_at=started_at,
+            metrics_before=metrics_before,
+            workflow_ok=False,
+            error=str(exc),
+        )
+        raise

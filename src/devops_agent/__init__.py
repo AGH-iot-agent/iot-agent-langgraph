@@ -4,8 +4,18 @@ import sys
 import threading
 
 
-_LOG_DIR = os.path.abspath("logs")
-_LOG_FILE = os.path.join(_LOG_DIR, "agent.log")
+def _resolve_log_file() -> tuple[str, str]:
+    explicit = (
+        os.environ.get("DEVOPS_AGENT_LOG_FILE") or os.environ.get("LOG_FILE") or ""
+    ).strip()
+    if explicit:
+        log_file = os.path.abspath(explicit)
+        return os.path.dirname(log_file), log_file
+    log_dir = os.path.abspath(os.environ.get("DEVOPS_AGENT_LOG_DIR", "logs"))
+    return log_dir, os.path.join(log_dir, "agent.log")
+
+
+_LOG_DIR, _LOG_FILE = _resolve_log_file()
 
 
 def _configure_logging() -> None:

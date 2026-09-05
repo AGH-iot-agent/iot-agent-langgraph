@@ -62,6 +62,23 @@ kubectl describe pod {pod} -n {namespace}
 ```
 Common causes: wrong env variable (DB URL, secret name), wrong port, missing ConfigMap.
 
+### Helm upgrade timeout (no OOM in the CI log)
+Helm `--atomic --timeout` failures look like this and **do not mention the real kill reason**:
+```
+Error: UPGRADE FAILED: resource Deployment/iotag-sbx/<svc> not ready.
+status: InProgress, message: Pending termination: 1
+context deadline exceeded
+```
+That is only "pods did not become Ready in time". The cause is in Kubernetes:
+
+1. Use `cluster_snapshot` / `oom_evidence` attached to the event (captured at CI failure).
+2. Look at `get_pods`: `oomkilled: true`, `last_terminated_reason: OOMKilled`, `last_exit_code: 137`.
+3. Look at `get_events`: reason `OOMKilled` / `OOMKilling`.
+4. If those are present → memory `resources.limits`/`requests` in `Helm/values-sbx.yaml` **and** `Helm/values-dev.yaml` are too low. Raise both. Match the workload (static frontend ≠ Spring Boot 512Mi).
+5. If instead you see `CrashLoopBackOff`, probe failures, or `ImagePullBackOff`, fix **that** — do not diagnose OOM just because a memory field exists.
+
+Never treat `context deadline exceeded` as the root cause.
+
 ## Maven / Java Build Failures
 
 ### Compilation error
@@ -123,7 +140,9 @@ When a build fails on a PR branch (not main), the fix goes BACK to that PR branc
    ```
    get_file_content(repo, path, ref=<PR_branch>)
    ```
-3. Identify root cause and produce `original_snippet` / `fixed_snippet`
+3. Identify root cause and produce a fix proposal:
+   - Helm values: `files[].content` = COMPLETE corrected file (omit original_snippet)
+   - Other files: `original_snippet` / `fixed_snippet`
 4. Validate: Helm template render → dry-run on `iotag-sbx`
 5. Create fix branch `fix/PR-{pr_number}-{timestamp}` from the PR branch HEAD
 6. Open PR: base = PR branch (e.g. `test/my-feature`), NOT main

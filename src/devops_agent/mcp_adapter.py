@@ -10,6 +10,7 @@ from devops_agent.adapters.grafana_adapter import GrafanaAdapter
 from devops_agent.adapters.loki_adapter import LokiAdapter
 from devops_agent.adapters.github_adapter import GHAdapter
 from devops_agent.metrics import agent_metrics
+from devops_agent.nodes.critic import forbidden_execute_name, intercepted_forbidden_result
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,17 @@ class MCPAdapter:
             )
 
         try:
+            lethal = forbidden_execute_name(tool, params)
+            if lethal:
+                logger.error(
+                    "[SAFETY] MCPAdapter intercepted forbidden tool service=%s tool=%s name=%s",
+                    service,
+                    tool,
+                    lethal,
+                )
+                _record("intercepted")
+                return intercepted_forbidden_result(lethal)
+
             fn = self._registry[service][tool]
         except KeyError:
             logger.error(

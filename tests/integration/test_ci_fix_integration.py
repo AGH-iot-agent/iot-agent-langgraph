@@ -546,6 +546,19 @@ def test_route_after_validation_routes_to_pr_creator_on_success() -> None:
     }
     assert route_after_validation(state) == "pr_creator"
 
+
+def test_route_after_validation_pr_build_failure_still_comments() -> None:
+    """github_pr_build_failure keeps pr_fix_commenter so the original PR gets the
+    thesis comment; that node opens the fix PR after validation passes."""
+    state = {
+        "validation_result": {"passed": True, "errors": []},
+        "fix_attempt": 1,
+        "max_fix_attempts": 5,
+        "event_kind": "github_pr_build_failure",
+        "ci_fix_proposal": {"files": [{"path": "Helm/values-sbx.yaml", "content": "replicaCount: 1\n"}]},
+    }
+    assert route_after_validation(state) == "pr_fix_commenter"
+
 def test_route_after_validation_retries_ci_fixer_on_failure() -> None:
     state = {
         "validation_result": {"passed": False, "errors": ["helm parse error"]},

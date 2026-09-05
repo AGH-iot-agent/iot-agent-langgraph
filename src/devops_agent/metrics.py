@@ -18,7 +18,7 @@ _LABEL_EVENT_KIND = ["event_kind"]
 PROM_RUNS_TOTAL = Counter(
     "iotag_runs_total",
     "Total number of agent graph runs",
-    _LABEL_EVENT_KIND,
+    ["event_kind", "agent_mode"],
 )
 PROM_MTTR_SECONDS = Histogram(
     "iotag_mttr_seconds",
@@ -153,6 +153,8 @@ class EventMetrics:
     total_tokens: int
     validation_passed: bool
     pr_created: bool
+    agent_mode: str = "multi_agent"
+    """single_agent | multi_agent — pozwala porównać warianty architektury w kampanii eksperymentalnej."""
 
 
 @dataclass
@@ -186,11 +188,12 @@ class AgentMetrics:
             total_tokens=int(payload.get("total_tokens", 0)),
             validation_passed=bool(payload.get("validation_passed", False)),
             pr_created=bool(payload.get("pr_created", False)),
+            agent_mode=str(payload.get("agent_mode", "multi_agent")),
         )
 
         # -- Prometheus counters / histograms --------------------------------
         kind = event.event_kind or "unknown"
-        PROM_RUNS_TOTAL.labels(event_kind=kind).inc()
+        PROM_RUNS_TOTAL.labels(event_kind=kind, agent_mode=event.agent_mode).inc()
         PROM_MTTR_SECONDS.labels(event_kind=kind).observe(event.mttr_s)
         PROM_INPUT_TOKENS_TOTAL.labels(event_kind=kind).inc(event.input_tokens)
         PROM_OUTPUT_TOKENS_TOTAL.labels(event_kind=kind).inc(event.output_tokens)

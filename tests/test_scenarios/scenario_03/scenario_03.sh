@@ -5,10 +5,13 @@
 #           proposes replicaCount bump or HPA in values-dev.yaml and opens a PR.
 
 set -euo pipefail
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
-export $(grep -v '^#' .env | xargs)
-
-TARGET_URL=${TARGET_URL:-"https://iot-agent-gateway-api-dev.iotag-dev.com/actuator/health"}
+TARGET_URL=${TARGET_URL:-"http://iot-agent-gateway-api-dev.iotag-dev.com/actuator/health"}
 CONCURRENCY=${CONCURRENCY:-50}
 DURATION_S=${DURATION_S:-60}
 REQUEST_DELAY=${REQUEST_DELAY:-0.05}   # seconds between requests per worker

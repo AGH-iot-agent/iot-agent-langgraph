@@ -4,17 +4,15 @@
 #           and posts a GitHub issue comment with cleanup commands.
 
 set -euo pipefail
-export $(grep -v '^#' .env | xargs)
+_THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${_THIS_DIR}"
+# shellcheck disable=SC1091
+source "${_THIS_DIR}/../_github_setup_token.sh"
 
 NAMESPACE=${NAMESPACE:-iotag-dev}
-GH_TOKEN=${GH_TOKEN:-""}
 OWNER=AGH-iot-agent
 REPO=iot-agent-authentication
 
-if [ -z "$GH_TOKEN" ]; then
-  echo "Error: GH_TOKEN is not set in .env"
-  exit 1
-fi
 
 echo "[scenario_09] Creating orphaned resources in namespace '$NAMESPACE'..."
 kubectl create configmap orphaned-test-cm-$(date +%s) \
@@ -49,13 +47,24 @@ JSON=$(jq -n \
   --arg body "$ISSUE_BODY" \
   '{title: $title, body: $body, labels: ["bug", "iot-devops-agent"]}')
 
-curl -s -L \
+RESP_FILE=$(mktemp)
+HTTP_CODE=$(curl -sS -L -w "%{http_code}" -o "$RESP_FILE" \
   -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GH_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   https://api.github.com/repos/${OWNER}/${REPO}/issues \
-  -d "$JSON" | jq -r '.html_url // .message'
+  -d "$JSON")
+
+if [ "$HTTP_CODE" -ge 300 ]; then
+  echo "GitHub API returned HTTP $HTTP_CODE" >&2
+  cat "$RESP_FILE" >&2
+  rm -f "$RESP_FILE"
+  exit 1
+fi
+
+jq -r '.html_url // .message' "$RESP_FILE"
+rm -f "$RESP_FILE"
 
 echo "[scenario_09] Done. Agent should detect and respond to the issue."
 

@@ -6,15 +6,26 @@ from typing import Any
 from devops_agent.mcp_adapter import MCPAdapter
 from devops_agent.state import AgentState
 from devops_agent.validators import validate_fix_proposal
+from devops_agent.validators.orchestrator import _proposal_file_entries
 
 logger = logging.getLogger(__name__)
 
 _adapter = MCPAdapter()
 
 
+def _normalized_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
+    files = proposal.get("files")
+    if isinstance(files, list) and files:
+        return proposal
+    coerced = _proposal_file_entries(proposal)
+    if not coerced:
+        return proposal
+    return {**proposal, "files": coerced}
+
+
 def sandbox_validator_node(state: AgentState) -> AgentState:
     """Validate whether proposed YAML changes are deployable in the target sbx namespace."""
-    proposal: dict[str, Any] = state.get("ci_fix_proposal") or {}
+    proposal: dict[str, Any] = _normalized_proposal(state.get("ci_fix_proposal") or {})
     context: dict[str, Any] = state.get("context", {})
 
     logger.info(
@@ -48,6 +59,7 @@ def sandbox_validator_node(state: AgentState) -> AgentState:
 
     return {
         **state,
+        "ci_fix_proposal": proposal,
         "validation_result": validation_result,
         "validation_history": validation_history,
     }
@@ -57,7 +69,8 @@ def route_after_validation(state: AgentState) -> str:
     """Route based on validation result and event kind.
 
     - Validation failed + attempts remain -> ci_fixer (retry with error feedback)
-    - PR build failure event -> pr_fix_commenter (comment on existing PR, always)
+    - PR build failure event -> pr_fix_commenter (comment on existing PR; that
+      node opens a fix PR targeting the failing branch after validation passes)
     - All other events: validation MUST pass before creating a PR.
       If validation failed after all retries, route to finalizer.
     """
@@ -76,7 +89,7 @@ def route_after_validation(state: AgentState) -> str:
     if event_kind == "github_pr_build_failure":
         return "pr_fix_commenter"
 
-    proposal = state.get("ci_fix_proposal") or {}
+    proposal = _normalized_proposal(state.get("ci_fix_proposal") or {})
     if not proposal.get("files"):
         return "finalizer"
 

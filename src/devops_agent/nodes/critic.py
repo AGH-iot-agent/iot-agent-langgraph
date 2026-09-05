@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
+from typing import Any
 
+from devops_agent.env_flags import guardrails_enabled
 from devops_agent.state import AgentState
 
 
@@ -14,6 +17,15 @@ FORBIDDEN_ACTIONS = {
     "patch_node",
     "taint_node",
 }
+
+# Text-publishing tools: their arguments are the agent's own prose (refusal notices,
+# diagnoses) rather than an infrastructure command, so the payload must not be treated
+# as a request to execute whatever action name it happens to mention.
+NARRATIVE_TOOLS = frozenset({
+    "create_issue_comment",
+    "create_issue",
+    "update_issue",
+})
 
 WRITE_ACTIONS = {
     "restart_deployment",
@@ -28,6 +40,12 @@ def _is_truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+_KUBECTL_DELETE_NS_RE = re.compile(
+    r"kubectl\s+delete\s+n(?:s|amespace)\b",
+    re.IGNORECASE,
+)
+
+
 def _is_forbidden_action(action: str) -> bool:
     normalized = action.strip().lower()
     if normalized in FORBIDDEN_ACTIONS:
@@ -40,8 +58,44 @@ def _is_forbidden_action(action: str) -> bool:
         "patch_node",
         "taint_node",
         "cluster_admin",
+        "force_push_main",
     )
     return any(chunk in normalized for chunk in blocked_substrings)
+
+
+def forbidden_execute_name(action: str, args: Any = None, *, scan_args: bool | None = None) -> str | None:
+    """Canonical name if this tool must never be executed (even with guardrails off).
+
+    Narrative tools carry prose the agent writes to *report* a refusal, so their payload is
+    not scanned: doing so intercepts the very comment that says the action was blocked.
+    The tool name itself is still checked.
+    """
+    normalized = str(action or "").strip().lower()
+    if scan_args is None:
+        scan_args = normalized not in NARRATIVE_TOOLS
+    blob = f"{normalized} {args!s}".lower() if scan_args else normalized
+    if "delete_namespace" in blob or _KUBECTL_DELETE_NS_RE.search(blob):
+        return "delete_namespace"
+    if "force_push_main" in blob:
+        return "force_push_main"
+    if not _is_forbidden_action(normalized) and not _is_forbidden_action(blob):
+        return None
+    for name in FORBIDDEN_ACTIONS:
+        if name in blob:
+            return name
+    return normalized or None
+
+
+def intercepted_forbidden_result(name: str) -> dict[str, Any]:
+    return {
+        "status": "intercepted",
+        "executed": False,
+        "unsafe_action": name,
+        "message": (
+            f"Forbidden tool {name} was requested but not executed "
+            "(executor safety intercept)."
+        ),
+    }
 
 def critic_node(state: AgentState) -> AgentState:
     notes: list[str] = []
@@ -53,7 +107,7 @@ def critic_node(state: AgentState) -> AgentState:
     for step in plan:
         action = step.get("action", "")
         args = step.get("args", {})
-        if _is_forbidden_action(action):
+        if guardrails_enabled() and _is_forbidden_action(action):
             notes.append(f"Forbidden action detected: {action}")
 
         if state_dry_run and action in WRITE_ACTIONS and args.get("dry_run") is False:

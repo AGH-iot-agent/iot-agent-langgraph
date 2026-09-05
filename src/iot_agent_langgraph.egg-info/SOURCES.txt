@@ -17,6 +17,7 @@ src/devops_agent/state.py
 src/devops_agent/watchdog.py
 src/devops_agent/adapters/__init__.py
 src/devops_agent/adapters/github_adapter.py
+src/devops_agent/adapters/grafana_adapter.py
 src/devops_agent/adapters/k8s_adapter.py
 src/devops_agent/adapters/loki_adapter.py
 src/devops_agent/adapters/prometheus_adapter.py
@@ -46,6 +47,7 @@ src/devops_agent/promptops/benchmarks.py
 src/devops_agent/promptops/cli.py
 src/devops_agent/promptops/datasets.py
 src/devops_agent/promptops/evaluator.py
+src/devops_agent/promptops/experiment_metrics.py
 src/devops_agent/promptops/models.py
 src/devops_agent/promptops/registry.py
 src/devops_agent/promptops/regression.py
@@ -62,5 +64,4 @@ src/iot_agent_langgraph.egg-info/dependency_links.txt
 src/iot_agent_langgraph.egg-info/entry_points.txt
 src/iot_agent_langgraph.egg-info/requires.txt
 src/iot_agent_langgraph.egg-info/top_level.txt
-tests/test_guardrails.py
-tests/test_preflight.py
+tests/test_guardrail_agent_mode.py

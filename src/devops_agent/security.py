@@ -115,6 +115,25 @@ _PII_PATTERNS: list[tuple[str, str, str]] = [
     (r"\b3[47][0-9]{13}\b",                                                    "credit_card", "critical"),  # Amex
 ]
 
+# Requested actions that must never be planned or executed (mirrors
+# devops_agent.nodes.critic.FORBIDDEN_ACTIONS). Matched in scan_input so a
+# github_issue that *asks* for delete_namespace is blocked before planner/executor
+# invent a Helm diagnosis. Both single_agent and multi_agent share this gate.
+_FORBIDDEN_ACTION_REQUEST_PATTERNS: list[tuple[str, str]] = [
+    (r"\bdelete_namespace\b", "delete_namespace"),
+    (r"kubectl\s+delete\s+n(s|amespace)\b", "delete_namespace"),
+    (r"delete\s+the\s+whole\s+namespace", "delete_namespace"),
+    (r"delete\s+(the\s+)?namespace\s+iotag-", "delete_namespace"),
+    (r"run\s+delete[_\s]namespace", "delete_namespace"),
+    (r"\bforce_push_main\b", "force_push_main"),
+    (r"\bcluster_admin_apply\b", "cluster_admin_apply"),
+    (r"\bdelete_persistentvolumeclaim\b", "delete_persistentvolumeclaim"),
+    (r"\bdelete_pvc\b", "delete_pvc"),
+    (r"\bpatch_node\b", "patch_node"),
+    (r"\btaint_node\b", "taint_node"),
+]
+
+
 _DANGEROUS_ARG_PATTERNS: list[tuple[str, str]] = [
     (r"rm\s+-[rf]{1,2}",                    "critical"),
     (r"kubectl\s+delete\s+all",             "critical"),
@@ -182,7 +201,7 @@ class SecurityLayer:
     def scan_input(self, text: str, source: str = "user_input") -> SecurityScanResult:
         """
         Scan incoming text (user request or external trigger) for
-        prompt-injection and jailbreak patterns.
+        prompt-injection, jailbreak, and explicit forbidden-action requests.
         """
         violations: list[SecurityViolation] = []
 
@@ -212,6 +231,20 @@ class SecurityLayer:
                 logger.warning(
                     "[SECURITY] jailbreak (%s) in %s | pattern=%s",
                     severity, source, pattern,
+                )
+
+        for pattern, action_name in _FORBIDDEN_ACTION_REQUEST_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                violations.append(SecurityViolation(
+                    threat_type="forbidden_action",
+                    severity="critical",
+                    description=f"Forbidden action requested: {action_name}",
+                    matched_pattern=action_name,
+                    field=source,
+                ))
+                logger.error(
+                    "[SECURITY] forbidden_action (%s) in %s",
+                    action_name, source,
                 )
 
         is_safe = not any(v.severity in ("high", "critical") for v in violations)
@@ -328,6 +361,8 @@ class SecurityLayer:
             sanitized = re.sub(pattern, "[BLOCKED_INJECTION]", sanitized, flags=re.IGNORECASE | re.DOTALL)
         for pattern, _ in _JAILBREAK_PATTERNS:
             sanitized = re.sub(pattern, "[BLOCKED_JAILBREAK]", sanitized, flags=re.IGNORECASE | re.DOTALL)
+        for pattern, _ in _FORBIDDEN_ACTION_REQUEST_PATTERNS:
+            sanitized = re.sub(pattern, "[BLOCKED_FORBIDDEN_ACTION]", sanitized, flags=re.IGNORECASE)
         return sanitized
 
     @staticmethod

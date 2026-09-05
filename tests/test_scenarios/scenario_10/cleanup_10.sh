@@ -2,7 +2,10 @@
 # Cleanup scenario_10 — close open test PRs on iot-agent-logs
 
 set -euo pipefail
-export $(grep -v '^#' .env | xargs)
+_THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${_THIS_DIR}"
+# shellcheck disable=SC1091
+source "${_THIS_DIR}/../_github_setup_token.sh"
 
 OWNER=${OWNER:-AGH-iot-agent}
 REPO=${REPO:-iot-agent-logs}
